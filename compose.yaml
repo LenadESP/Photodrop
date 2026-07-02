@@ -1,0 +1,42 @@
+name: photodrop
+
+services:
+  photodrop:
+    build:
+      context: .
+      args:
+        NODE_VERSION: "22"
+    image: homelab/photodrop:0.1.0
+    container_name: apps-photodrop
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - TZ=${TZ}
+      - PORT=3000
+      - DATA_DIR=/data
+    volumes:
+      - /var/lib/homelab/photodrop:/data
+    networks:
+      - networking_proxy
+    read_only: true            # rootfs read-only; only /data (volume) + /tmp (tmpfs) writable
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL                    # binds :3000 (>1024), needs no capabilities
+    mem_limit: 1500m
+    memswap_limit: 1500m
+    cpus: "1.5"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  networking_proxy:
+    name: networking_proxy
+    external: true

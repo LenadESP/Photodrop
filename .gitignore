@@ -1,0 +1,23 @@
+# Secrets / env
+.env
+.env.local
+*.key
+*.pem
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+backend/dist/
+frontend/dist/
+
+# Runtime data (never in the repo — lives in /var/lib/homelab/photodrop)
+data/
+albums/
+tmp/
+
+# Logs / OS cruft
+*.log
+.DS_Store
+Thumbs.db

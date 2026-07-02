@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+/* Design tokens — restrained, warm-neutral, easy to restyle later.
+   Tailwind v4 generates utilities from these (bg-canvas, text-muted, …). */
+@theme {
+  --color-canvas: #faf9f7;
+  --color-surface: #ffffff;
+  --color-ink: #1b1a18;
+  --color-muted: #6f6d69;
+  --color-line: #e8e5e0;
+  --color-accent: #2f2e2b;
+  --color-danger: #b4413a;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  --radius: 0.7rem;
+  --shadow-soft: 0 1px 2px rgba(20, 19, 17, 0.04), 0 8px 24px rgba(20, 19, 17, 0.06);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Consistent, quiet focus treatment across the app. */
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
