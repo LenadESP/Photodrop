@@ -3,7 +3,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Static } from '@sinclair/typebox';
 import archiver from 'archiver';
 import { verifySecret } from '../lib/hash.js';
-import { albumCookie, albumCookieOpts } from '../lib/cookies.js';
+import { ACCESS_COOKIE, albumCookie, albumCookieOpts } from '../lib/cookies.js';
+import type { AccessClaims } from '../plugins/auth.js';
 import { originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
 import { extToMime, sanitizeDownloadName } from '../lib/mime.js';
 import { UidParams, UidPhotoParams } from '../schemas/common.js';
@@ -19,10 +20,25 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
       | PhotoRow
       | undefined;
 
-  // Access gate: public albums are open; password-gated albums require a valid
-  // per-album unlock cookie; private-without-password albums are V2-only.
+  // The owning admin (valid session) can always view their own albums — this is
+  // what lets the dashboard preview private albums via the same endpoints.
+  function isOwnerAdmin(req: FastifyRequest, album: AlbumRow): boolean {
+    const token = req.cookies[ACCESS_COOKIE];
+    if (!token) return false;
+    try {
+      const p = app.jwt.verify(token) as AccessClaims;
+      return p.scope === 'session' && p.role === 'admin' && p.sub === album.owner_id;
+    } catch {
+      return false;
+    }
+  }
+
+  // Access gate: public albums are open; the owning admin is always allowed;
+  // password-gated albums require a valid per-album unlock cookie;
+  // private-without-password albums are V2-only.
   function hasAccess(req: FastifyRequest, album: AlbumRow): boolean {
     if (album.is_public === 1) return true;
+    if (isOwnerAdmin(req, album)) return true;
     if (album.password_hash === null) return false;
     const token = req.cookies[albumCookie(album.uid)];
     if (!token) return false;
