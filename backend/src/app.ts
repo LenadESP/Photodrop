@@ -4,8 +4,14 @@ import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { env } from './env.js';
+import securityPlugin from './plugins/security.js';
 import sqlitePlugin from './plugins/sqlite.js';
+import authPlugin from './plugins/auth.js';
+import csrfPlugin from './plugins/csrf.js';
 import { healthRoutes } from './routes/health.js';
+import { authRoutes } from './routes/auth.js';
+import { adminAlbumRoutes } from './routes/admin.albums.js';
+import { publicRoutes } from './routes/public.js';
 
 // In the container: dist/app.js → ../public holds the built SPA.
 const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -26,8 +32,17 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   });
 
+  // Order matters: headers + rate-limit, then DB, then auth (cookie/jwt), then
+  // the global CSRF guard, then routes (so the guard applies to all of them).
+  await app.register(securityPlugin);
   await app.register(sqlitePlugin);
+  await app.register(authPlugin);
+  await app.register(csrfPlugin);
+
   await app.register(healthRoutes);
+  await app.register(authRoutes);
+  await app.register(adminAlbumRoutes);
+  await app.register(publicRoutes);
 
   // Serve the built SPA (present in the image; typically absent in local dev).
   if (existsSync(publicDir)) {

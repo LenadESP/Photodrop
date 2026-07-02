@@ -26,7 +26,7 @@ CREATE INDEX idx_albums_owner ON albums(owner_id);
 
 CREATE TABLE photos (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
-  album_uid        TEXT    NOT NULL REFERENCES albums(uid) ON DELETE CASCADE,
+  album_uid        TEXT    NOT NULL REFERENCES albums(uid) ON UPDATE CASCADE ON DELETE CASCADE,
   stored_filename  TEXT    NOT NULL,             -- randomised; never derived from user input
   original_name    TEXT    NOT NULL,
   thumb_path       TEXT    NOT NULL,
@@ -41,6 +41,6 @@ CREATE INDEX idx_photos_album ON photos(album_uid);
 -- server-side regardless of this table's presence.
 CREATE TABLE album_assignments (
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  album_uid  TEXT    NOT NULL REFERENCES albums(uid) ON DELETE CASCADE,
+  album_uid  TEXT    NOT NULL REFERENCES albums(uid) ON UPDATE CASCADE ON DELETE CASCADE,
   PRIMARY KEY (user_id, album_uid)
 );

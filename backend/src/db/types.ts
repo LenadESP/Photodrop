@@ -1,0 +1,35 @@
+import type { Role } from '../plugins/auth.js';
+
+export interface UserRow {
+  id: number;
+  username: string;
+  password_hash: string;
+  role: Role;
+  totp_secret: string | null;
+  totp_enabled: number;
+  failed_login_attempts: number;
+  locked_until: number | null;
+  created_at: number;
+}
+
+export interface AlbumRow {
+  uid: string;
+  owner_id: number;
+  title: string;
+  is_public: number;
+  password_hash: string | null;
+  exif_strip: number;
+  created_at: number;
+}
+
+export interface PhotoRow {
+  id: number;
+  album_uid: string;
+  stored_filename: string;
+  original_name: string;
+  thumb_path: string;
+  width: number | null;
+  height: number | null;
+  bytes: number | null;
+  created_at: number;
+}
