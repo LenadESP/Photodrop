@@ -40,3 +40,36 @@ export function downloadUrl(url: string, filename?: string): void {
   a.click();
   a.remove();
 }
+
+export interface DownloadItem {
+  url: string;
+  name: string;
+}
+
+// Save many photos at once via the OS share sheet (one action → "Save N Images"
+// straight into Photos). Returns false if the platform can't share multiple
+// files, so the caller can fall back to individual downloads.
+export async function shareFiles(items: DownloadItem[]): Promise<boolean> {
+  if (!canShareFiles() || items.length === 0) return false;
+  try {
+    const files = await Promise.all(items.map((i) => fetchAsFile(i.url, i.name)));
+    if (!navigator.canShare({ files })) return false;
+    await navigator.share({ files });
+    return true;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') return true;
+    return false;
+  }
+}
+
+// Fallback: fetch and download each photo one by one (individual files, no zip).
+// A short gap between each keeps browsers from suppressing the later downloads.
+export async function downloadAllSequential(items: DownloadItem[]): Promise<void> {
+  for (const item of items) {
+    const file = await fetchAsFile(item.url, item.name);
+    const objectUrl = URL.createObjectURL(file);
+    downloadUrl(objectUrl, item.name);
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}

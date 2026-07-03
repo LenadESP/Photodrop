@@ -6,7 +6,8 @@ import { Input } from '../components/Input';
 import { FullPageSpinner } from '../components/Spinner';
 import { Lightbox } from '../components/Lightbox';
 import { ThemeToggle } from '../components/ThemeToggle';
-import { downloadUrl } from '../lib/share';
+import { Spinner } from '../components/Spinner';
+import { downloadAllSequential, shareFiles } from '../lib/share';
 
 interface Photo {
   id: number;
@@ -29,6 +30,7 @@ export function Gallery() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const [downloadingAll, setDownloadingAll] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -102,6 +104,21 @@ export function Gallery() {
   }
 
   const photos = meta?.photos ?? [];
+
+  // Save every photo — one action on mobile via the share sheet ("Save N Images"
+  // to Photos), individual downloads elsewhere. No zip.
+  const downloadAll = async () => {
+    if (photos.length === 0 || downloadingAll) return;
+    setDownloadingAll(true);
+    try {
+      const items = photos.map((p) => ({ url: `/api/a/${uid}/download/${p.id}`, name: p.name }));
+      const shared = await shareFiles(items);
+      if (!shared) await downloadAllSequential(items);
+    } finally {
+      setDownloadingAll(false);
+    }
+  };
+
   return (
     <div className="min-h-full">
       <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-5 sm:px-6">
@@ -113,8 +130,9 @@ export function Gallery() {
         </div>
         <div className="flex items-center gap-2">
           {photos.length > 0 && (
-            <Button variant="secondary" size="sm" onClick={() => downloadUrl(`/api/a/${uid}/zip`)}>
-              Download all
+            <Button variant="secondary" size="sm" onClick={() => void downloadAll()} disabled={downloadingAll}>
+              {downloadingAll ? <Spinner className="h-4 w-4" /> : null}
+              {downloadingAll ? 'Saving…' : 'Download all'}
             </Button>
           )}
           <ThemeToggle />
@@ -124,7 +142,7 @@ export function Gallery() {
       {photos.length === 0 ? (
         <p className="px-6 py-16 text-center text-muted">This album is empty.</p>
       ) : (
-        <div className="grid grid-cols-2 gap-1 p-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-1.5 px-4 py-1 sm:grid-cols-3 sm:px-6 md:grid-cols-4 lg:grid-cols-5 lg:px-8">
           {photos.map((p, i) => (
             <button
               key={p.id}

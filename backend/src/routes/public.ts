@@ -1,7 +1,6 @@
 import { createReadStream, statSync } from 'node:fs';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Static } from '@sinclair/typebox';
-import archiver from 'archiver';
 import { verifySecret } from '../lib/hash.js';
 import { ACCESS_COOKIE, albumCookie, albumCookieOpts } from '../lib/cookies.js';
 import type { AccessClaims } from '../plugins/auth.js';
@@ -141,39 +140,4 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     return sendImage(reply, filePath, extToMime(photo.stored_filename), sanitizeDownloadName(photo.original_name));
   });
 
-  // ── Bulk download: streamed, store-only zip (originals already compressed) ─
-  app.get('/api/a/:uid/zip', { schema: { params: UidParams } }, async (req, reply) => {
-    const { uid } = req.params as Static<typeof UidParams>;
-    const album = getAlbum(uid);
-    if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
-
-    const photos = app.db
-      .prepare('SELECT * FROM photos WHERE album_uid = ? ORDER BY created_at, id')
-      .all(uid) as PhotoRow[];
-
-    reply.header('Content-Type', 'application/zip');
-    reply.header('Cache-Control', 'no-store');
-    reply.header(
-      'Content-Disposition',
-      `attachment; filename="${sanitizeDownloadName(album.title)}.zip"`,
-    );
-
-    const archive = archiver('zip', { store: true });
-    archive.on('error', (err) => {
-      app.log.error(err);
-      reply.raw.destroy(err);
-    });
-
-    const used = new Set<string>();
-    for (const p of photos) {
-      const base = sanitizeDownloadName(p.original_name);
-      let name = base;
-      let i = 1;
-      while (used.has(name)) name = `${i++}_${base}`;
-      used.add(name);
-      archive.file(safeJoin(originalsDir(uid), p.stored_filename), { name });
-    }
-    void archive.finalize();
-    return reply.send(archive);
-  });
 }

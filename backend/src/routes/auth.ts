@@ -17,7 +17,7 @@ import { LoginBody, TotpBody } from '../schemas/auth.js';
 import type { UserRow } from '../db/types.js';
 
 const MAX_FAILED = 5;
-const LOCK_MS = 15 * 60 * 1000;
+const LOCK_MS = 5 * 60 * 1000;
 
 const strict = { max: 10, timeWindow: '1 minute' };
 
