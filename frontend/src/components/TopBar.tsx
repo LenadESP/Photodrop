@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { useAuth } from '../context/auth';
 import { Button } from './Button';
+import { ThemeToggle } from './ThemeToggle';
 
 export function TopBar() {
   const { user, logout } = useAuth();
@@ -10,6 +11,7 @@ export function TopBar() {
         photodrop
       </Link>
       <nav className="flex items-center gap-2">
+        <ThemeToggle />
         {user?.role === 'admin' ? (
           <>
             <Link to="/admin">

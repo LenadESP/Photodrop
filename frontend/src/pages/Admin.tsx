@@ -161,7 +161,7 @@ export function Admin() {
                   <button
                     onClick={() => setSelectedUid(a.uid)}
                     className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
-                      a.uid === selectedUid ? 'bg-ink text-canvas' : 'hover:bg-black/5'
+                      a.uid === selectedUid ? 'bg-ink text-canvas' : 'hover:bg-ink/5'
                     }`}
                   >
                     <span className="truncate">{a.title}</span>

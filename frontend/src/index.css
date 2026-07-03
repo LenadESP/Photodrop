@@ -17,6 +17,37 @@
   --shadow-soft: 0 1px 2px rgba(20, 19, 17, 0.04), 0 8px 24px rgba(20, 19, 17, 0.06);
 }
 
+/* Dark theme: override the semantic tokens and every utility follows. Applied
+   automatically when the OS prefers dark (unless the user forced light), or
+   explicitly via the .theme-dark class from the toggle. */
+:root {
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not(.theme-light) {
+    color-scheme: dark;
+    --color-canvas: #141310;
+    --color-surface: #201e19;
+    --color-ink: #f3f1ea;
+    --color-muted: #a6a29a;
+    --color-line: #322f29;
+    --color-accent: #ebe8e0;
+    --color-danger: #e0685f;
+    --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+}
+:root.theme-dark {
+  color-scheme: dark;
+  --color-canvas: #141310;
+  --color-surface: #201e19;
+  --color-ink: #f3f1ea;
+  --color-muted: #a6a29a;
+  --color-line: #322f29;
+  --color-accent: #ebe8e0;
+  --color-danger: #e0685f;
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
 html,
 body,
 #root {

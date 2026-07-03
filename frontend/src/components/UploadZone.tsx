@@ -72,7 +72,7 @@ export function UploadZone({ uid, onUploaded, onError }: Props) {
     <div
       {...getRootProps()}
       className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-10 text-center transition-colors ${
-        isDragActive ? 'border-ink bg-black/5' : 'border-line hover:border-ink/40'
+        isDragActive ? 'border-ink bg-ink/5' : 'border-line hover:border-ink/40'
       }`}
     >
       <input {...getInputProps()} />

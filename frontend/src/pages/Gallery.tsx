@@ -5,6 +5,7 @@ import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { FullPageSpinner } from '../components/Spinner';
 import { Lightbox } from '../components/Lightbox';
+import { ThemeToggle } from '../components/ThemeToggle';
 import { downloadUrl } from '../lib/share';
 
 interface Photo {
@@ -110,11 +111,14 @@ export function Gallery() {
             {photos.length} photo{photos.length === 1 ? '' : 's'}
           </p>
         </div>
-        {photos.length > 0 && (
-          <Button variant="secondary" size="sm" onClick={() => downloadUrl(`/api/a/${uid}/zip`)}>
-            Download all
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {photos.length > 0 && (
+            <Button variant="secondary" size="sm" onClick={() => downloadUrl(`/api/a/${uid}/zip`)}>
+              Download all
+            </Button>
+          )}
+          <ThemeToggle />
+        </div>
       </header>
 
       {photos.length === 0 ? (

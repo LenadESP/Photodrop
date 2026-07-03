@@ -16,7 +16,7 @@ interface Props {
 }
 
 const navBtn =
-  'absolute top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-2xl text-canvas hover:bg-white/20';
+  'absolute top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-2xl text-white hover:bg-white/20';
 
 export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
   const photo = photos[index];
@@ -40,9 +40,9 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-ink/95 backdrop-blur">
-      <div className="flex items-center justify-between p-4 text-canvas">
-        <span className="text-sm text-canvas/60">
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur">
+      <div className="flex items-center justify-between p-4 text-white">
+        <span className="text-sm text-white/60">
           {index + 1} / {photos.length}
         </span>
         <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm hover:bg-white/10">
