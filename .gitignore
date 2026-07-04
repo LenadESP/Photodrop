@@ -4,6 +4,10 @@
 *.key
 *.pem
 
+# Local compose overrides (infra-specific: networks, host paths, ports)
+compose.override.yaml
+compose.override.yml
+
 # Dependencies
 node_modules/
 
@@ -12,10 +16,13 @@ dist/
 backend/dist/
 frontend/dist/
 
-# Runtime data (never in the repo — lives in /var/lib/homelab/photodrop)
+# Runtime data (never in the repo — bind-mounted into the container at /data)
 data/
 albums/
 tmp/
+*.db
+*.db-wal
+*.db-shm
 
 # Logs / OS cruft
 *.log

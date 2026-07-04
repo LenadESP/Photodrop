@@ -1,0 +1,22 @@
+# Reverse-proxy deployment template.
+#
+# Copy to compose.override.yaml (gitignored) and adjust. Compose auto-merges
+# compose.override.yaml on top of compose.yaml, so put your infra specifics
+# here and leave the portable base untouched.
+#
+# This example drops the standalone port publishing and instead joins an
+# external Docker network that a TLS-terminating reverse proxy also sits on,
+# reaching the app at apps-photodrop:3000.
+
+services:
+  photodrop:
+    volumes:
+      # Absolute host path for persistent data (overrides the ./data default).
+      - /srv/photodrop:/data
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    name: proxy          # must match your reverse proxy's network
+    external: true

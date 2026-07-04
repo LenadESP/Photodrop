@@ -1,15 +1,23 @@
 # Installation & deployment
 
-The [README Quickstart](../README.md#quickstart-docker) is the short path. This is the
-full version, including the reverse-proxy wiring the shipped `compose.yaml` assumes.
+The [README Quickstart](../README.md#quickstart-docker) gets you running standalone in a
+few commands. This is the full version, covering both deployment paths:
+
+- **(a) Standalone** — publish a port, reach it on `localhost`. Good for a quick trial
+  or a single-box setup.
+- **(b) Behind a reverse proxy** — no published ports, joins an external Docker network,
+  TLS terminated upstream. Production shape.
+
+Both share the same base `compose.yaml`. Path (b) adds a small, gitignored
+`compose.override.yaml` for the infra specifics — the base file is never edited.
 
 ## Requirements
 
-- Docker + Docker Compose.
-- A TLS-terminating reverse proxy in front (the compose file publishes no ports).
-- A host directory for persistent data (default `/var/lib/homelab/photodrop`).
+- Docker + Docker Compose (v2).
+- For path (b): a TLS-terminating reverse proxy on a shared Docker network.
+- Disk for persistent data (default `./data` next to `compose.yaml`; relocatable).
 
-## 1. Configuration
+## 1. Configuration (both paths)
 
 ```bash
 cp .env.example .env
@@ -23,8 +31,8 @@ openssl rand -base64 48   # → CSRF_SECRET
 openssl rand -base64 48   # → COOKIE_SECRET
 ```
 
-Then set `ADMIN_PASSWORD` to something strong and `PUBLIC_ORIGIN` to your public URL
-(used for share links and Secure-cookie scoping). Lock the file down:
+Then set `ADMIN_PASSWORD` to something strong and `PUBLIC_ORIGIN` to the URL you'll open
+the app at (used for share links and Secure-cookie scoping). Lock the file down:
 
 ```bash
 chmod 600 .env
@@ -33,71 +41,110 @@ chmod 600 .env
 Production boot **fails** if any secret still holds a `CHANGE_ME` placeholder.
 See the [README config table](../README.md#configuration) for every variable.
 
-## 2. Data directory
+## Path (a) — Standalone
 
-The container runs as uid 1000 (`node`) and mounts the data dir at `/data`:
+No reverse proxy. Publish the port and use a `localhost` origin.
 
-```bash
-sudo mkdir -p /var/lib/homelab/photodrop/{data,albums,tmp}
-sudo chown -R 1000:1000 /var/lib/homelab/photodrop
-```
+1. In `compose.yaml`, uncomment the port mapping:
 
-To use a different host path, edit the `volumes:` mapping in `compose.yaml`.
+   ```yaml
+       ports:
+         - "3000:3000"
+   ```
 
-## 3. Build and run
+2. In `.env`, set a plain-HTTP origin:
 
-```bash
-docker compose build
-docker compose up -d
-docker compose logs -f          # watch first boot: migrations + admin seed
-```
+   ```bash
+   PUBLIC_ORIGIN=http://localhost:3000
+   ```
 
-On first boot the app creates the SQLite DB, applies migrations, and seeds the single
-admin account from `ADMIN_USERNAME` / `ADMIN_PASSWORD` (only if the users table is empty).
+   > Secure cookies require HTTPS. The base image sets `NODE_ENV=production`, which keeps
+   > the `Secure` flag on cookies — over plain HTTP the browser will drop them and login
+   > won't stick. For local HTTP testing, also set `NODE_ENV=development` in `.env`
+   > (cookies drop `Secure` when `NODE_ENV` isn't `production`). Do **not** run
+   > `development` on a public origin.
 
-## 4. Reverse proxy
+3. Data lives in `./data` by default — Compose creates it (owned by uid 1000). To put it
+   elsewhere, set `DATA_DIR=/abs/host/path` in `.env`; the container path stays `/data`.
 
-`compose.yaml` publishes no ports and joins an external `networking_proxy` Docker
-network. Your proxy must be on that network and terminate TLS, forwarding to
-`apps-photodrop:3000`. The app trusts exactly one proxy hop (`trustProxy: 1`) so
-`X-Forwarded-For` gives it the real client IP — make sure your proxy sets it.
+4. Build and run:
 
-Create the network first if it doesn't exist:
+   ```bash
+   docker compose build
+   docker compose up -d
+   docker compose logs -f          # watch first boot: migrations + admin seed
+   ```
 
-```bash
-docker network create networking_proxy
-```
+Open `http://localhost:3000`.
 
-Example Caddy site block:
+## Path (b) — Behind a reverse proxy
 
-```
-photos.example.org {
-    reverse_proxy apps-photodrop:3000
-}
-```
+No published ports. The app joins an external network your proxy also sits on and is
+reached at `apps-photodrop:3000`; the proxy terminates TLS.
 
-The author's deployment fronts this with a Cloudflare Tunnel and CrowdSec; that's
-infrastructure outside this repo and not required to run photodrop.
+1. Create the override from the template:
 
-## 5. First login
+   ```bash
+   cp compose.override.example.yaml compose.override.yaml
+   ```
+
+   Edit it to match your infra — the shipped example:
+
+   ```yaml
+   services:
+     photodrop:
+       volumes:
+         - /srv/photodrop:/data     # absolute host data path
+       networks:
+         - proxy
+
+   networks:
+     proxy:
+       name: proxy                  # your reverse proxy's network
+       external: true
+   ```
+
+   `compose.override.yaml` is gitignored; Compose auto-merges it on top of
+   `compose.yaml`, so leave the base untouched.
+
+2. Prepare the data directory (container runs as uid 1000, `node`):
+
+   ```bash
+   sudo mkdir -p /srv/photodrop/{data,albums,tmp}
+   sudo chown -R 1000:1000 /srv/photodrop
+   ```
+
+3. Create the network if it doesn't exist, then build and run:
+
+   ```bash
+   docker network create proxy
+   docker compose build
+   docker compose up -d
+   ```
+
+4. Point your proxy at the container and set `PUBLIC_ORIGIN` in `.env` to the public URL.
+   The app trusts exactly one proxy hop (`trustProxy: 1`), so `X-Forwarded-For` gives it
+   the real client IP — make sure your proxy sets it. Example Caddy site block:
+
+   ```
+   photos.example.org {
+       reverse_proxy apps-photodrop:3000
+   }
+   ```
+
+Confirm the merged result before starting: `docker compose config` prints the effective
+base + override configuration.
+
+> **Author's setup.** The public path fronts this with a Cloudflare Tunnel and CrowdSec;
+> that's infrastructure outside this repo and not required to run photodrop.
+
+## First login (both paths)
 
 Open `PUBLIC_ORIGIN` and log in with the seeded admin credentials. You'll be forced to
 enroll TOTP (scan the QR with an authenticator app, confirm a code) before a session is
 issued. **Save the TOTP seed** — V1 has no recovery codes.
 
-## Running standalone (no proxy)
-
-For a quick local test without a reverse proxy, add a port mapping and a plain-HTTP
-origin. In `compose.yaml`:
-
-```yaml
-    ports:
-      - "3000:3000"
-```
-
-and set `PUBLIC_ORIGIN=http://localhost:3000` in `.env`. Cookies drop the `Secure`
-flag automatically when `NODE_ENV` is not `production`, but note the shipped compose
-sets `NODE_ENV=production`; for local HTTP testing you may also want to override that.
+The admin is seeded on first boot only, when the users table is empty.
 
 ## Upgrades
 
@@ -108,15 +155,16 @@ docker compose up -d
 ```
 
 Migrations under `backend/src/db/migrations/` run automatically at startup and are
-tracked in a `_migrations` table, so they apply exactly once. Back up
-`/var/lib/homelab/photodrop/` (DB + photo files) before a major upgrade.
+tracked in a `_migrations` table, so they apply exactly once. Back up your data
+directory (DB + photo files) before a major upgrade.
 
 ## Backup
 
-Everything stateful is under the data directory:
+Everything stateful is under the data directory (`./data`, or wherever `DATA_DIR` /
+your override points):
 
 - `data/photodrop.db` (+ `-wal` / `-shm`) — accounts, albums, photo metadata.
 - `albums/<uid>/` — the actual image files.
 
-Snapshot the whole `/var/lib/homelab/photodrop/` tree. SQLite in WAL mode is best
-backed up with the container stopped, or via `sqlite3 .backup`.
+Snapshot the whole tree. SQLite in WAL mode is best backed up with the container stopped,
+or via `sqlite3 .backup`.

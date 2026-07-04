@@ -34,6 +34,8 @@ Put the file at docs/media/demo.gif and reference it as:
 
 ## Quickstart (Docker)
 
+Runs standalone on `localhost` — no reverse proxy required.
+
 ```bash
 git clone https://github.com/LenadESP/Photodrop.git photodrop
 cd photodrop
@@ -45,30 +47,32 @@ cp .env.example .env
 openssl rand -base64 48   # → JWT_SECRET
 openssl rand -base64 48   # → CSRF_SECRET
 openssl rand -base64 48   # → COOKIE_SECRET
-# then set a strong ADMIN_PASSWORD and adjust PUBLIC_ORIGIN.
 
-# 3. Lock down the env file
+# 3. For a local standalone run, set these in .env:
+#      PUBLIC_ORIGIN=http://localhost:3000
+#      NODE_ENV=development      # lets cookies work over plain HTTP
+#    and set a strong ADMIN_PASSWORD.
 chmod 600 .env
 
-# 4. Create the data directory (lives outside the repo)
-sudo mkdir -p /var/lib/homelab/photodrop/{data,albums,tmp}
-sudo chown -R 1000:1000 /var/lib/homelab/photodrop   # the container runs as uid 1000 (node)
+# 4. Publish the port: uncomment the `ports: ["3000:3000"]` block in compose.yaml.
 
-# 5. Build and start
+# 5. Build and start (data is created in ./data automatically)
 docker compose build
 docker compose up -d
 ```
+
+Open <http://localhost:3000>.
 
 > **First login forces TOTP.** The `ADMIN_PASSWORD` alone can't reach the dashboard —
 > on the first successful login you're required to enroll an authenticator app (scan
 > the QR, confirm a code) before a session is issued. Keep that TOTP seed safe: there
 > are no recovery codes in V1 (see [Status](#status)).
 
-> **Reverse proxy assumed.** The shipped `compose.yaml` publishes **no ports** and joins
-> an external `networking_proxy` Docker network — it expects a TLS-terminating reverse
-> proxy (Caddy, in the author's setup) in front. To run it standalone for a quick local
-> test, add a `ports: ["3000:3000"]` mapping and set `PUBLIC_ORIGIN=http://localhost:3000`.
-> See [docs/INSTALL.md](docs/INSTALL.md) for the full deployment walkthrough.
+> **Going to production?** The base `compose.yaml` is portable and standalone-ready.
+> For a TLS reverse-proxy deployment (no published ports, shared Docker network), copy
+> `compose.override.example.yaml` to `compose.override.yaml` and adjust — Compose merges
+> it on top of the base. Full walkthrough of both paths in
+> [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Configuration
 

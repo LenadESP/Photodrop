@@ -5,6 +5,16 @@ land. The V1 schema was deliberately shaped so the big V2 item is additive.
 
 ## Planned
 
+### v1.1 — performance & delivery
+
+- [ ] Async thumbnail/preview generation (SQLite-backed queue, bounded concurrency) — today large batch uploads are processed synchronously and saturate the process.
+- [ ] Intermediate "display" size (~2560px) so viewing never decodes full-res originals.
+- [ ] On-the-fly streamed zip for desktop "Download all".
+- [ ] Link expiry that deletes the actual files, not just the DB row.
+- [ ] Edge-cacheable previews (`Cache-Control: immutable` + `ETag`).
+
+### Beyond
+
 - [ ] **V2 client portal.** Per-user album assignments so a client logs in and sees only
       their albums. The `users.role` column and the `album_assignments` table already
       exist in `001_init.sql`; no route wiring yet.

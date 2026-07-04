@@ -66,25 +66,29 @@ frontend/
     lib/api.ts             fetch wrapper (credentials + CSRF header)
     lib/share.ts           Web Share API "Save to Photos" + download fallbacks
 Dockerfile                 multi-stage: build SPA → build backend → slim runtime
-compose.yaml               single service, hardened, reverse-proxy wired
+compose.yaml               portable base: single service, hardened, standalone-ready
+compose.override.example.yaml  reverse-proxy overlay template (external net, host path)
 .env.example
 ```
 
 ## Runtime data tree
 
-Created on first boot, lives outside the repo (mounted at `/data` in the container,
-`/var/lib/homelab/photodrop` on the host by default):
+Created on first boot, lives outside the repo. The container always writes under
+`/data`; that path is a bind mount whose host source is configurable (`DATA_DIR`,
+default `./data` next to `compose.yaml`; the author's deploy points it at
+`/var/lib/homelab/photodrop`):
 
 ```
-/var/lib/homelab/photodrop/
+$DATA_DIR/  →  /data (in container)
 ├── data/photodrop.db          SQLite (+ -wal/-shm)
 ├── albums/<uid>/originals/    delivered images (EXIF-stripped at upload by default)
 ├── albums/<uid>/thumbs/       WebP thumbnails, generated at upload
 └── tmp/                       upload staging (same fs → atomic rename on commit)
 ```
 
-`env.ts` resolves these from `DATA_DIR` (default `/data`): `dbPath = data/photodrop.db`,
-`albumsDir = albums/`, `tmpDir = tmp/`.
+`env.ts` resolves every path from the in-container `DATA_DIR` (default `/data`):
+`dbPath = data/photodrop.db`, `albumsDir = albums/`, `tmpDir = tmp/`. No data path
+is hardcoded — relocating the volume never touches code.
 
 ## Data model
 
@@ -207,14 +211,25 @@ through `safeJoin` as defence-in-depth against traversal.
 
 ## Container & network wiring
 
-`compose.yaml` runs one hardened service:
+Two-file model: a portable **base** (`compose.yaml`) that runs anywhere, plus an
+optional **override** (`compose.override.yaml`, gitignored) that layers on
+infra-specific bits. Compose auto-merges the override on top of the base.
+
+`compose.yaml` (base) runs one hardened service:
 
 - `read_only: true` rootfs; only the `/data` volume and a `/tmp` tmpfs are writable.
 - `cap_drop: ALL` (binds :3000, needs no capabilities), `no-new-privileges:true`.
 - `mem_limit`/`memswap_limit` 1500m, `cpus: "1.5"`.
 - Runs as `USER node` (uid 1000).
-- No published ports; joins the external `networking_proxy` network. A reverse proxy
-  (Caddy) reaches it at `apps-photodrop:3000` and terminates TLS. In the author's setup
-  the public path is a Cloudflare Tunnel, with CrowdSec + the Cloudflare bouncer in
-  front (infrastructure outside this repo).
+- Data volume `${DATA_DIR:-./data}:/data` — bind mount, host source configurable.
+- Standalone-ready: a commented `ports: ["3000:3000"]` block is the only edit needed
+  to reach it on localhost with no proxy.
 - Healthcheck hits `/api/health` with Node's `fetch`.
+
+`compose.override.yaml` (not shipped) carries the reverse-proxy specifics: it swaps
+the data volume for an absolute host path and joins an external Docker network the
+proxy also sits on, so the proxy reaches the app at `apps-photodrop:3000` and
+terminates TLS. See `compose.override.example.yaml` for the template. The author's
+deploy pins the volume to `/var/lib/homelab/photodrop`, joins `networking_proxy`
+(Caddy), and fronts the public path with a Cloudflare Tunnel plus CrowdSec + the
+Cloudflare bouncer (infrastructure outside this repo).
