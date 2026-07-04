@@ -1,83 +1,144 @@
-# photodrop — self-hosted photo delivery + admin dashboard
+# photodrop
 
-Admin (me) drag-drops exported JPGs into a dashboard; clients get an opaque link
-→ gallery → download one or bulk-save to phone. Replaces Piwigo at
-`photos.lenadesp.org`. Single Node container, embedded SQLite, storage isolated
-to `/var/lib/homelab/photodrop/` — it never touches the RAW library.
+Self-hosted photo delivery: drag-drop your exported JPGs into an admin dashboard,
+hand a client one opaque link, and they get a clean gallery they can view or save
+straight to their phone. No accounts, no third-party storage, no metadata leaks.
 
-- **URL:** https://photos.lenadesp.org (public via Cloudflare Tunnel, ADR-026 pattern)
-- **Stack:** Fastify + TypeScript (Node 22, ESM) backend serving a React + Vite SPA
-- **Data:** `/var/lib/homelab/photodrop/` only (`data/`, `albums/`, `tmp/`, `.env`)
-- **Wiring:** joins `networking_proxy`, no published ports; Caddy reaches it at
-  `apps-photodrop:3000` (Vaultwarden/Piwigo model)
-- **Repo:** https://github.com/LenadESP/Photodrop
+<!--
+TODO: add a screenshot or short GIF here.
+Ideal: a ~10s loop showing the full happy path —
+  admin drag-drops photos into an album → copies the /a/<uid> link →
+  the recipient opens the gallery, taps a photo into the lightbox, and hits
+  "Save to Photos".
+Put the file at docs/media/demo.gif and reference it as:
+  ![photodrop demo](docs/media/demo.gif)
+-->
 
 ## Features
 
-- **Opaque album links** (`/a/<uid>`, 14-char nanoid) — non-enumerable; regenerating
-  a link instantly revokes the old one.
-- **Per-album password** (argon2id, verified server-side *before* any photo bytes are
-  served) and a public/private toggle.
-- **Gallery:** responsive thumbnail grid, full-screen lightbox with **zoom in/out +
-  drag-to-pan**, download-one, and **Save to Photos** (mobile share sheet).
-- **Download all** saves every photo *individually* — the OS share sheet ("Save N
-  Images" → Photos) on mobile, sequential downloads elsewhere. No zip.
-- **Dark mode** — follows the OS preference, with a manual toggle (persisted).
-- **Admin dashboard:** create / rename / toggle public / set-remove password /
-  regenerate link / toggle EXIF stripping / delete albums, plus drag-drop upload.
-- **Delivery:** thumbnails generated at upload; originals served full-quality with
-  GPS + camera-serial EXIF stripped by default (lossless, per-album toggle).
+- **Opaque album links** — `/a/<uid>` with a 14-char nanoid (~83 bits). Non-enumerable;
+  regenerating a link instantly revokes the old one.
+- **Per-album password** — argon2id, verified server-side *before* any photo bytes are
+  served. Plus a public/private toggle.
+- **Gallery** — responsive thumbnail grid, full-screen lightbox with zoom + drag-to-pan,
+  download-one, and "Save to Photos" via the mobile share sheet.
+- **Download all** — saves every photo individually (share sheet on mobile, sequential
+  downloads elsewhere). No zip.
+- **EXIF stripping** — GPS and camera metadata removed losslessly at upload, on by
+  default, per-album toggle.
+- **Dark mode** — follows the OS preference, with a persisted manual toggle.
+- **Admin dashboard** — create / rename / toggle public / set-remove password /
+  regenerate link / toggle EXIF / delete albums, plus drag-drop upload.
+- **Hardened auth** — mandatory TOTP, httpOnly+SameSite JWT cookies, CSRF double-submit,
+  rate limiting, and account lockout.
 
-## Layout
+## Quickstart (Docker)
+
+```bash
+git clone https://github.com/LenadESP/Photodrop.git photodrop
+cd photodrop
+
+# 1. Configuration
+cp .env.example .env
+
+# 2. Generate the three secrets (run this three times, paste each into .env)
+openssl rand -base64 48   # → JWT_SECRET
+openssl rand -base64 48   # → CSRF_SECRET
+openssl rand -base64 48   # → COOKIE_SECRET
+# then set a strong ADMIN_PASSWORD and adjust PUBLIC_ORIGIN.
+
+# 3. Lock down the env file
+chmod 600 .env
+
+# 4. Create the data directory (lives outside the repo)
+sudo mkdir -p /var/lib/homelab/photodrop/{data,albums,tmp}
+sudo chown -R 1000:1000 /var/lib/homelab/photodrop   # the container runs as uid 1000 (node)
+
+# 5. Build and start
+docker compose build
+docker compose up -d
+```
+
+> **First login forces TOTP.** The `ADMIN_PASSWORD` alone can't reach the dashboard —
+> on the first successful login you're required to enroll an authenticator app (scan
+> the QR, confirm a code) before a session is issued. Keep that TOTP seed safe: there
+> are no recovery codes in V1 (see [Status](#status)).
+
+> **Reverse proxy assumed.** The shipped `compose.yaml` publishes **no ports** and joins
+> an external `networking_proxy` Docker network — it expects a TLS-terminating reverse
+> proxy (Caddy, in the author's setup) in front. To run it standalone for a quick local
+> test, add a `ports: ["3000:3000"]` mapping and set `PUBLIC_ORIGIN=http://localhost:3000`.
+> See [docs/INSTALL.md](docs/INSTALL.md) for the full deployment walkthrough.
+
+## Configuration
+
+Essential variables (from [`.env.example`](.env.example)):
+
+| Variable               | Required | Default              | What it does                                                            |
+| ---------------------- | -------- | -------------------- | ----------------------------------------------------------------------- |
+| `JWT_SECRET`           | yes      | —                    | Signs session/refresh/album/CSRF tokens. `openssl rand -base64 48`.     |
+| `CSRF_SECRET`          | yes      | —                    | Signs CSRF double-submit tokens.                                        |
+| `COOKIE_SECRET`        | yes      | —                    | Cookie signing secret.                                                  |
+| `ADMIN_USERNAME`       | yes      | `admin`              | Seeded on first boot only (when the users table is empty).              |
+| `ADMIN_PASSWORD`       | yes      | —                    | Initial admin password. TOTP is still required on top of it.            |
+| `PUBLIC_ORIGIN`        | yes      | —                    | Public URL; used for share links and Secure-cookie scoping.            |
+| `TZ`                   | no       | `Europe/Madrid`      | Container timezone.                                                     |
+| `MAX_FILE_BYTES`       | no       | `52428800` (50 MB)   | Per-file upload cap.                                                    |
+| `MAX_FILES_PER_UPLOAD` | no       | `40`                 | Per-request file count cap (the frontend chunks larger drops).         |
+| `MAX_IMAGE_PIXELS`     | no       | `50000000` (50 MP)   | Decode cap — a decompression-bomb guard.                               |
+
+The startup guard refuses to boot in production if any secret still holds a
+`CHANGE_ME` placeholder.
+
+## How it fits together
 
 ```
-backend/    Fastify API (src/) + SQLite schema (src/db/migrations/)
-frontend/   React + Vite + Tailwind SPA (built into the image, served at /)
-Dockerfile  multi-stage: build SPA → build backend → slim runtime (+ perl for exiftool)
-compose.yaml
-.env.example
+                    HTTPS
+  client browser  ───────▶  reverse proxy (TLS)  ───────▶  photodrop:3000
+   (gallery / admin SPA)     Caddy + Cloudflare Tunnel      Fastify + React SPA
+                                                                  │
+                                                    ┌─────────────┴─────────────┐
+                                                    ▼                           ▼
+                                             SQLite (WAL)              filesystem
+                                          data/photodrop.db      albums/<uid>/originals
+                                                                 albums/<uid>/thumbs
 ```
 
-Runtime data tree (created on first boot, lives outside the repo):
+The single Node container serves both the API and the built SPA. State is an embedded
+SQLite database plus photo files on a mounted volume — no external services. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full breakdown.
 
-```
-/var/lib/homelab/photodrop/
-├── data/photodrop.db          SQLite (+ -wal/-shm)
-├── albums/<uid>/originals/    delivered JPGs (EXIF-stripped at upload by default)
-├── albums/<uid>/thumbs/       generated at upload
-└── tmp/                       upload staging (same fs → atomic rename on commit)
-```
+## Status
 
-## Bootstrap
+In production, single-operator. Runs the author's photo delivery at
+`https://photos.lenadesp.org`. It's a one-admin tool by design: one seeded account,
+mandatory TOTP, no self-service user management. The V2 client-portal groundwork
+(user roles, `album_assignments`) is in the schema but not yet wired to routes.
 
-1. `cp .env.example .env`, then fill it: generate each secret with
-   `openssl rand -base64 48`, set a strong `ADMIN_PASSWORD`. `chmod 600 .env`.
-2. `mkdir -p /var/lib/homelab/photodrop/{data,albums,tmp}`
-3. `docker compose build && docker compose up -d`
-4. Cutover (replaces Piwigo): point `caddy/conf.d/photos.caddy` at
-   `apps-photodrop:3000`, reload Caddy, then take the piwigo stack down. The
-   Cloudflare Public Hostname for `photos.lenadesp.org` is unchanged.
-5. First login forces TOTP enrollment before the dashboard is reachable.
+## Roadmap
 
-## Gotchas
+- [ ] V2 client portal — per-user album assignments (schema scaffolding already present)
+- [ ] TOTP recovery codes
+- [ ] Multi-admin / user management
+- [ ] Optional zip download for "Download all"
+- [ ] Automated test suite
 
-- **Node 22, ESM only.** nanoid v5 is ESM-only; the backend is `"type": "module"`
-  and compiles with `moduleResolution: NodeNext` (relative imports carry `.js`).
-- **perl is installed in the image** (not the host) for exiftool-vendored's
-  lossless EXIF strip.
-- **EXIF strip happens at upload**, losslessly (metadata-only, no re-encode). The
-  per-album `exif_strip` toggle governs *future* uploads, not already-stored
-  photos (non-retroactive).
-- **Uploads are chunked** by the frontend by total size to stay under Cloudflare's
-  ~100 MB tunnel body limit; per-file and per-request caps live in `.env`.
-- **Lost TOTP = locked out.** Single admin, no recovery codes in V1 — regaining
-  access means editing `users.totp_enabled`/`totp_secret` in the SQLite DB by hand.
+Detail and rationale in [ROADMAP.md](ROADMAP.md).
 
-## Security posture
+## Tech stack
 
-httpOnly+Secure+SameSite=Strict JWT cookies, CSRF double-submit on every
-state-changing route, mandatory admin TOTP, per-route TypeBox validation,
-rate-limit + account lockout (5 failed attempts → 5-minute lock), helmet headers,
-magic-byte upload validation with a fail-closed sharp decode gate. `read_only` rootfs, `cap_drop: ALL`,
-`no-new-privileges`, memory/CPU ceilings. CrowdSec + the Cloudflare bouncer
-already cover `*.lenadesp.org` on the public path.
+- **Backend:** Fastify 5 + TypeScript (Node 22, ESM), better-sqlite3, sharp,
+  argon2, exiftool-vendored, otplib, TypeBox validation.
+- **Frontend:** React 19 + Vite + Tailwind CSS 4, react-router, react-dropzone.
+- **Packaging:** multi-stage Docker image, single container behind a reverse proxy.
+
+## Documentation
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — internals, data layout, design decisions.
+- [docs/INSTALL.md](docs/INSTALL.md) — full install and deployment guide.
+- [SECURITY.md](SECURITY.md) — security model and vulnerability reporting.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup and conventions.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Copyright © 2026 LenadESP.
