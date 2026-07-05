@@ -17,7 +17,7 @@ runs on untrusted image bytes).
 - **Mandatory TOTP.** A correct password issues only a short-lived `enroll` or `mfa`
   scoped token — never a session. A session is granted only after TOTP activation
   (first login) or verification (returning login). See `routes/auth.ts`,
-  `lib/totp.ts` (otplib; accepts the current step ±1, ≈ ±30 s, per RFC 6238 §5.2).
+  `lib/totp.ts` (otplib, ±30 s / ±1-step skew tolerance, per RFC 6238 §5.2).
 - **Password hashing.** argon2id with OWASP-baseline parameters
   (`memoryCost 19456 KiB, timeCost 2, parallelism 1`). See `lib/hash.ts`.
 - **Argon2 verified before bytes are served.** Album passwords are checked with
@@ -55,13 +55,19 @@ runs on untrusted image bytes).
 - **Magic-byte validation.** File type is determined from the first bytes, not the
   extension or the multipart mimetype (both attacker-controlled). Only JPEG, PNG, and
   WebP pass; SVG/XML can never match (`lib/images.ts`).
-- **Fail-closed decode gate.** Every upload is fully decoded by sharp to generate a
-  thumbnail; a corrupt or hostile image throws and rejects the **entire** upload
-  (all-or-nothing, nothing persisted). `limitInputPixels` (`MAX_IMAGE_PIXELS`, default
-  50 MP) guards against decompression bombs.
+- **Two-stage decode gate.** Ingest runs a cheap header check (`probeImage`: magic bytes
+  + a header-only `sharp().metadata()` read), which rejects non-images, wrong types, and
+  — via declared dimensions vs `limitInputPixels`/`MAX_IMAGE_PIXELS` (default 50 MP) — a
+  decompression bomb, before anything is persisted. The **full sharp decode** — the
+  definitive gate against corrupt/hostile pixel data — then runs in the background worker
+  (`plugins/thumbnailer.ts`); a file that fails it is dropped entirely (row + files).
+  Trade-off: a bad file is caught a moment after ingest rather than rejecting the request,
+  but it is never served (see below) and never persists.
 - **Metadata stripping.** GPS, camera serial, and all other tags are removed losslessly
-  at upload by default (`lib/exif.ts`, exiftool). Thumbnails never carry metadata (sharp
-  drops it by default). The per-album toggle affects future uploads only.
+  by default (`lib/exif.ts`, exiftool). The strip runs in the worker, but **photo bytes
+  are not served until `thumb_status = 'ready'`** — i.e. after the strip — so an
+  un-stripped original is never exposed. Thumbnails never carry metadata (sharp drops it
+  by default). The per-album toggle affects future uploads only.
 - **Path safety.** On-disk names are random and decoupled from user input; album paths
   are built from a validated uid and passed through `safeJoin`, which refuses anything
   escaping the album directory (`lib/paths.ts`).

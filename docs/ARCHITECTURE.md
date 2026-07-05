@@ -102,7 +102,9 @@ a `_migrations` table). Schema in `migrations/001_init.sql`:
   `password_hash` (nullable argon2id), `exif_strip` (default 1), `created_at`.
 - **photos** — `id`, `album_uid` → albums (`ON UPDATE CASCADE ON DELETE CASCADE`),
   `stored_filename` (random), `original_name`, `thumb_path`, `width`, `height`,
-  `bytes`, `created_at`.
+  `bytes`, `thumb_status` (`pending`|`ready`|`failed`, migration `002`), `created_at`.
+  Bytes are served only when `thumb_status = 'ready'`; the column also acts as the
+  durable thumbnail work queue.
 - **album_assignments** — `(user_id, album_uid)`. Created in V1, used in V2 (client
   portal). Unused by current routes.
 
@@ -118,9 +120,11 @@ Plugin registration order in `app.ts` is load-bearing:
 3. **auth** — registers `@fastify/cookie` and `@fastify/jwt` (reads the JWT from the
    `access_token` cookie), decorates the scope guards.
 4. **csrf** — global `onRequest` hook enforcing double-submit on unsafe methods.
-5. **multipart** — field/file limits for uploads.
-6. **routes** — registered last so the CSRF guard covers all of them.
-7. **static SPA** — if `../public` exists (it does in the image), serves it with a
+5. **thumbnailer** — the background thumbnail worker; decorates `app.kickThumbnailer`
+   and drains any `pending` photos on `onReady` (boot reconciliation).
+6. **multipart** — field/file limits for uploads.
+7. **routes** — registered last so the CSRF guard covers all of them.
+8. **static SPA** — if `../public` exists (it does in the image), serves it with a
    non-`/api` GET fallback to `index.html` for client-side routing.
 
 `trustProxy: 1` — the app trusts exactly one proxy hop so `req.ip` reflects the real
@@ -155,22 +159,37 @@ is the exception — it's deliberately readable by JS (double-submit) and lives 
 
 ## Upload pipeline
 
-`POST /api/admin/albums/:uid/photos` (admin session required). Three phases, all-or-nothing:
+`POST /api/admin/albums/:uid/photos` (admin session required). Ingest is synchronous
+and validating; the expensive work (full decode, thumbnail, EXIF strip) is deferred to
+a background worker so a large drop doesn't tie up the request.
 
-1. **Stream to disk** — `saveRequestFiles` writes every part to `tmpDir` on the data
+1. **Disk-full guard** — if free space on the data volume is below `MIN_FREE_BYTES`
+   (default 1 GiB), reject with 507 before writing anything (protects the SQLite WAL).
+2. **Stream to disk** — `saveRequestFiles` writes every part to `tmpDir` on the data
    volume (never tmpfs), enforcing `MAX_FILE_BYTES` and `MAX_FILES_PER_UPLOAD`.
    Exceeding either → 413, nothing saved.
-2. **Phase A — validate** — for each file: `sniffImageKind` checks magic bytes
+3. **Phase A — validate (cheap)** — for each file, `probeImage` checks magic bytes
    (JPEG / PNG / WebP only; extension and multipart mimetype are ignored as
-   attacker-controlled), then `makeThumbnail` forces a full sharp decode with
-   `limitInputPixels`. A corrupt, hostile, or oversized image throws here and the
-   **entire** upload is rejected. sharp drops metadata from thumbnail output by default,
-   so thumbnails never carry GPS.
-3. **Phase B — strip** — if `album.exif_strip`, exiftool losslessly deletes all tags
-   from each original (metadata-only, no re-encode).
-4. **Phase C — commit** — atomic same-fs `rename` of originals and thumbs into place,
-   then a single DB transaction inserting the photo rows. Any failure rolls back the
-   moves; a `finally` cleans up leftover temp thumbnails.
+   attacker-controlled) and does a header-only `sharp().metadata()` read. This rejects
+   non-images, wrong types, and — via declared dimensions vs `MAX_IMAGE_PIXELS` — a
+   decompression bomb, without a full decode. Any failure rejects the **entire** upload
+   (415); nothing is persisted.
+4. **Phase B — commit** — atomic same-fs `rename` of the originals into place, then one
+   DB transaction inserting the photo rows as `thumb_status = 'pending'`. Any failure
+   rolls back the moves. The route returns `202` immediately and calls
+   `app.kickThumbnailer()`.
+5. **Worker** (`plugins/thumbnailer.ts`) — one photo at a time (`sharp.concurrency(1)`;
+   the `await` between photos keeps the event loop responsive): a **full sharp decode +
+   resize** (the definitive corrupt/hostile-image gate) writes the thumbnail, then
+   exiftool strips the original if `album.exif_strip`, then the row flips to `ready`. A
+   file that fails the decode is dropped entirely (row + files). Because the photos row
+   is the queue, a crash mid-batch just leaves rows `pending` for the next boot to
+   reprocess.
+
+**Bytes are served only when `thumb_status = 'ready'`** (see below), so an original that
+hasn't been EXIF-stripped yet is never exposed — the metadata guarantee is preserved
+even though the strip moved off the request path. The gallery shows a placeholder for
+`pending` photos and polls until they are ready.
 
 The frontend (`UploadZone.tsx`) chunks large drops by total size (~90 MB) and count
 (30) so each request stays under Cloudflare's ~100 MB tunnel body limit and the
@@ -178,7 +197,9 @@ backend's per-request cap.
 
 ## Serving photos
 
-`public.ts` gates every byte through `hasAccess`:
+`public.ts` gates every byte through `hasAccess`, and only serves photos whose
+`thumb_status = 'ready'` (a `pending`/`failed` photo's thumb, original, and download all
+404 — so an un-stripped original never leaves the server):
 
 - Public album → open.
 - Owning admin with a valid session → always allowed (this is how the dashboard
@@ -202,8 +223,13 @@ through `safeJoin` as defence-in-depth against traversal.
   long-lived exiftool child process is shut down on `app.close()`.
 - **EXIF strip is at upload and non-retroactive.** The per-album `exif_strip` toggle
   governs *future* uploads; already-stored originals are not re-processed when you flip it.
-- **sharp is the decode gate, not just a resizer.** `sharp.concurrency(1)` and
-  `sharp.cache(false)` keep memory bounded on a small CPU with a hard container ceiling.
+  The strip runs in the thumbnail worker, but bytes aren't served until `ready`, so it
+  still happens before an original is ever exposed.
+- **sharp is the decode gate, not just a resizer.** The worker's full decode is the
+  definitive corrupt/hostile-image check; `sharp.concurrency(1)` and `sharp.cache(false)`
+  keep memory bounded on a small CPU with a hard container ceiling. Ingest does only a
+  cheap header read, so a hostile *header* is caught synchronously and hostile *pixels*
+  are caught by the worker (which drops the photo).
 - **Album link regeneration** renames the on-disk album dir and issues a new uid;
   photos cascade via `ON UPDATE CASCADE`. The rename is rolled back if the DB update throws.
 - **Native modules.** better-sqlite3, sharp, and argon2 use native prebuilds installed

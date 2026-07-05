@@ -14,6 +14,7 @@ interface Photo {
   width: number | null;
   height: number | null;
   name: string;
+  ready: boolean;
 }
 interface AlbumMeta {
   album: { uid: string; title: string };
@@ -52,6 +53,14 @@ export function Gallery() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // While any photo is still being processed, poll until every thumbnail is ready.
+  useEffect(() => {
+    if (view !== 'ready' || !meta) return;
+    if (meta.photos.every((p) => p.ready)) return;
+    const t = setTimeout(() => void load(), 3000);
+    return () => clearTimeout(t);
+  }, [view, meta, load]);
 
   const unlock = async (e: FormEvent) => {
     e.preventDefault();
@@ -104,14 +113,16 @@ export function Gallery() {
   }
 
   const photos = meta?.photos ?? [];
+  const readyPhotos = photos.filter((p) => p.ready);
+  const pendingCount = photos.length - readyPhotos.length;
 
-  // Save every photo — one action on mobile via the share sheet ("Save N Images"
-  // to Photos), individual downloads elsewhere. No zip.
+  // Save every ready photo — one action on mobile via the share sheet ("Save N
+  // Images" to Photos), individual downloads elsewhere. No zip.
   const downloadAll = async () => {
-    if (photos.length === 0 || downloadingAll) return;
+    if (readyPhotos.length === 0 || downloadingAll) return;
     setDownloadingAll(true);
     try {
-      const items = photos.map((p) => ({ url: `/api/a/${uid}/download/${p.id}`, name: p.name }));
+      const items = readyPhotos.map((p) => ({ url: `/api/a/${uid}/download/${p.id}`, name: p.name }));
       const shared = await shareFiles(items);
       if (!shared) await downloadAllSequential(items);
     } finally {
@@ -126,10 +137,11 @@ export function Gallery() {
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           <p className="text-sm text-muted">
             {photos.length} photo{photos.length === 1 ? '' : 's'}
+            {pendingCount > 0 && ` · ${pendingCount} processing…`}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {photos.length > 0 && (
+          {readyPhotos.length > 0 && (
             <Button variant="secondary" size="sm" onClick={() => void downloadAll()} disabled={downloadingAll}>
               {downloadingAll ? <Spinner className="h-4 w-4" /> : null}
               {downloadingAll ? 'Saving…' : 'Download all'}
@@ -143,27 +155,37 @@ export function Gallery() {
         <p className="px-6 py-16 text-center text-muted">This album is empty.</p>
       ) : (
         <div className="grid grid-cols-2 gap-1.5 px-4 py-1 sm:grid-cols-3 sm:px-6 md:grid-cols-4 lg:grid-cols-5 lg:px-8">
-          {photos.map((p, i) => (
-            <button
-              key={p.id}
-              onClick={() => setLightbox(i)}
-              className="group relative aspect-square overflow-hidden bg-line/40"
-            >
-              <img
-                src={`/api/a/${uid}/thumb/${p.id}`}
-                alt={p.name}
-                loading="lazy"
-                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
-              />
-            </button>
-          ))}
+          {photos.map((p) =>
+            p.ready ? (
+              <button
+                key={p.id}
+                onClick={() => setLightbox(readyPhotos.indexOf(p))}
+                className="group relative aspect-square overflow-hidden bg-line/40"
+              >
+                <img
+                  src={`/api/a/${uid}/thumb/${p.id}`}
+                  alt={p.name}
+                  loading="lazy"
+                  className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                />
+              </button>
+            ) : (
+              <div
+                key={p.id}
+                className="flex aspect-square items-center justify-center bg-line/40"
+                title="Processing…"
+              >
+                <Spinner className="h-5 w-5" />
+              </div>
+            ),
+          )}
         </div>
       )}
 
       {lightbox !== null && (
         <Lightbox
           uid={uid}
-          photos={photos}
+          photos={readyPhotos}
           index={lightbox}
           onClose={() => setLightbox(null)}
           onIndex={setLightbox}

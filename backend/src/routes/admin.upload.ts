@@ -1,19 +1,16 @@
 import { renameSync, rmSync, statSync } from 'node:fs';
-import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { Static } from '@sinclair/typebox';
 import { env } from '../env.js';
 import { freeBytes } from '../lib/disk.js';
 import { newStoredFilename } from '../lib/ids.js';
 import { originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
-import { makeThumbnail, sniffImageKind } from '../lib/images.js';
-import { stripAllMetadata } from '../lib/exif.js';
+import { probeImage } from '../lib/images.js';
 import { UidParams, UidPhotoParams } from '../schemas/common.js';
 import type { AlbumRow, PhotoRow } from '../db/types.js';
 
 interface Prepared {
   tmpOriginal: string;
-  tmpThumb: string;
   storedFilename: string;
   thumbName: string;
   originalName: string;
@@ -63,94 +60,73 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
       const saved = req.savedRequestFiles ?? [];
       if (saved.length === 0) return reply.code(400).send({ error: 'No files uploaded' });
 
+      // Phase A — validate (cheap): magic-byte sniff + header-only dimension read.
+      // Rejects non-images, wrong types, and decompression bombs (declared pixels
+      // vs the cap). Any failure rejects the ENTIRE upload; nothing is persisted.
+      // The full pixel decode — the definitive hostile-image gate — runs in the
+      // background worker, which drops any file that fails it.
       const prepared: Prepared[] = [];
-      const tmpThumbs: string[] = [];
+      for (const file of saved) {
+        const probe = await probeImage(file.filepath);
+        if (!probe) {
+          return reply.code(415).send({ error: `Unsupported or invalid image: ${file.filename}` });
+        }
+        prepared.push({
+          tmpOriginal: file.filepath,
+          storedFilename: newStoredFilename(probe.kind),
+          thumbName: newStoredFilename('webp'),
+          originalName: file.filename,
+          width: probe.width,
+          height: probe.height,
+          bytes: statSync(file.filepath).size,
+        });
+      }
 
+      // Phase B — commit: atomic same-fs renames of the originals into place,
+      // then one DB txn inserting rows as 'pending'. Thumbnails + EXIF strip
+      // happen in the worker; bytes are NOT served until the row is 'ready', so
+      // an un-stripped original is never exposed.
+      const moved: string[] = [];
       try {
-        // Phase A — validate: magic-byte sniff + full decode to a thumbnail.
-        // Any failure rejects the ENTIRE upload; nothing is persisted.
-        for (const file of saved) {
-          const kind = await sniffImageKind(file.filepath);
-          if (!kind) {
-            return reply.code(415).send({ error: `Unsupported file type: ${file.filename}` });
-          }
-          const storedFilename = newStoredFilename(kind);
-          const thumbName = newStoredFilename('webp');
-          const tmpThumb = join(env.tmpDir, thumbName);
-          tmpThumbs.push(tmpThumb);
-
-          const { width, height } = await makeThumbnail(file.filepath, tmpThumb);
-          prepared.push({
-            tmpOriginal: file.filepath,
-            tmpThumb,
-            storedFilename,
-            thumbName,
-            originalName: file.filename,
-            width,
-            height,
-            bytes: statSync(file.filepath).size,
-          });
+        for (const item of prepared) {
+          const finalOriginal = safeJoin(originalsDir(uid), item.storedFilename);
+          renameSync(item.tmpOriginal, finalOriginal);
+          moved.push(finalOriginal);
         }
-
-        // Phase B — strip metadata from the originals (default on, lossless).
-        if (album.exif_strip === 1) {
-          for (const item of prepared) await stripAllMetadata(item.tmpOriginal);
-        }
-
-        // Phase C — commit: atomic same-fs renames into place, then one DB txn.
-        const moved: string[] = [];
-        try {
+        const insert = app.db.prepare(
+          `INSERT INTO photos
+             (album_uid, stored_filename, original_name, thumb_path, width, height, bytes, thumb_status, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+        );
+        app.db.transaction(() => {
+          const now = Date.now();
           for (const item of prepared) {
-            const finalOriginal = safeJoin(originalsDir(uid), item.storedFilename);
-            const finalThumb = safeJoin(thumbsDir(uid), item.thumbName);
-            renameSync(item.tmpOriginal, finalOriginal);
-            moved.push(finalOriginal);
-            renameSync(item.tmpThumb, finalThumb);
-            moved.push(finalThumb);
+            insert.run(
+              uid,
+              item.storedFilename,
+              item.originalName,
+              item.thumbName,
+              item.width,
+              item.height,
+              item.bytes,
+              now,
+            );
           }
-          const insert = app.db.prepare(
-            `INSERT INTO photos
-               (album_uid, stored_filename, original_name, thumb_path, width, height, bytes, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          );
-          app.db.transaction(() => {
-            const now = Date.now();
-            for (const item of prepared) {
-              insert.run(
-                uid,
-                item.storedFilename,
-                item.originalName,
-                item.thumbName,
-                item.width,
-                item.height,
-                item.bytes,
-                now,
-              );
-            }
-          })();
-        } catch (err) {
-          // Undo any moves so a partial failure persists nothing.
-          for (const p of moved) {
-            try {
-              rmSync(p, { force: true });
-            } catch {
-              /* ignore */
-            }
-          }
-          throw err;
-        }
-      } finally {
-        // Clean up any thumbnails still in the temp dir (already-moved ones ENOENT).
-        for (const t of tmpThumbs) {
+        })();
+      } catch (err) {
+        // Undo any moves so a partial failure persists nothing.
+        for (const p of moved) {
           try {
-            rmSync(t, { force: true });
+            rmSync(p, { force: true });
           } catch {
             /* ignore */
           }
         }
+        throw err;
       }
 
-      return reply.code(201).send({ uploaded: prepared.length });
+      app.kickThumbnailer();
+      return reply.code(202).send({ uploaded: prepared.length, pending: true });
     },
   );
 

@@ -14,10 +14,12 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   const getAlbum = (uid: string): AlbumRow | undefined =>
     app.db.prepare('SELECT * FROM albums WHERE uid = ?').get(uid) as AlbumRow | undefined;
 
-  const getPhoto = (uid: string, id: number): PhotoRow | undefined =>
-    app.db.prepare('SELECT * FROM photos WHERE id = ? AND album_uid = ?').get(id, uid) as
-      | PhotoRow
-      | undefined;
+  // Only 'ready' photos are servable: a 'pending' original hasn't been
+  // EXIF-stripped yet, so its bytes must not leave the server.
+  const getReadyPhoto = (uid: string, id: number): PhotoRow | undefined =>
+    app.db
+      .prepare("SELECT * FROM photos WHERE id = ? AND album_uid = ? AND thumb_status = 'ready'")
+      .get(id, uid) as PhotoRow | undefined;
 
   // The owning admin (valid session) can always view their own albums — this is
   // what lets the dashboard preview private albums via the same endpoints.
@@ -99,12 +101,22 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const photos = app.db
-      .prepare('SELECT id, width, height, original_name FROM photos WHERE album_uid = ? ORDER BY created_at, id')
-      .all(uid) as Pick<PhotoRow, 'id' | 'width' | 'height' | 'original_name'>[];
+      .prepare(
+        'SELECT id, width, height, original_name, thumb_status FROM photos WHERE album_uid = ? ORDER BY created_at, id',
+      )
+      .all(uid) as Pick<PhotoRow, 'id' | 'width' | 'height' | 'original_name' | 'thumb_status'>[];
 
     return {
       album: { uid: album.uid, title: album.title },
-      photos: photos.map((p) => ({ id: p.id, width: p.width, height: p.height, name: p.original_name })),
+      photos: photos.map((p) => ({
+        id: p.id,
+        width: p.width,
+        height: p.height,
+        name: p.original_name,
+        // Bytes aren't servable until the worker finishes; the client shows a
+        // placeholder for not-yet-ready photos and polls.
+        ready: p.thumb_status === 'ready',
+      })),
     };
   });
 
@@ -113,7 +125,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const { uid, id } = req.params as Static<typeof UidPhotoParams>;
     const album = getAlbum(uid);
     if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
-    const photo = getPhoto(uid, id);
+    const photo = getReadyPhoto(uid, id);
     if (!photo) return reply.code(404).send({ error: 'Not found' });
     return sendImage(reply, safeJoin(thumbsDir(uid), photo.thumb_path), 'image/webp');
   });
@@ -123,7 +135,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const { uid, id } = req.params as Static<typeof UidPhotoParams>;
     const album = getAlbum(uid);
     if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
-    const photo = getPhoto(uid, id);
+    const photo = getReadyPhoto(uid, id);
     if (!photo) return reply.code(404).send({ error: 'Not found' });
     const filePath = safeJoin(originalsDir(uid), photo.stored_filename);
     return sendImage(reply, filePath, extToMime(photo.stored_filename));
@@ -134,7 +146,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const { uid, id } = req.params as Static<typeof UidPhotoParams>;
     const album = getAlbum(uid);
     if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
-    const photo = getPhoto(uid, id);
+    const photo = getReadyPhoto(uid, id);
     if (!photo) return reply.code(404).send({ error: 'Not found' });
     const filePath = safeJoin(originalsDir(uid), photo.stored_filename);
     return sendImage(reply, filePath, extToMime(photo.stored_filename), sanitizeDownloadName(photo.original_name));

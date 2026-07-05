@@ -23,6 +23,7 @@ interface Album {
 interface Photo {
   id: number;
   name: string;
+  ready: boolean;
 }
 
 export function Admin() {
@@ -63,6 +64,13 @@ export function Admin() {
     if (selectedUid) void loadPhotos(selectedUid);
     else setPhotos([]);
   }, [selectedUid, loadPhotos]);
+
+  // Poll while freshly-uploaded photos are still being processed by the worker.
+  useEffect(() => {
+    if (!selectedUid || photos.length === 0 || photos.every((p) => p.ready)) return;
+    const t = setTimeout(() => void loadPhotos(selectedUid), 3000);
+    return () => clearTimeout(t);
+  }, [selectedUid, photos, loadPhotos]);
 
   if (authLoading) return <FullPageSpinner />;
   if (!user || user.role !== 'admin') return <Navigate to="/login" replace />;
@@ -233,23 +241,31 @@ export function Admin() {
                 <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5">
                   {photos.map((p) => (
                     <div key={p.id} className="group relative aspect-square overflow-hidden rounded-md bg-line/40">
-                      <img
-                        src={`/api/a/${selected.uid}/thumb/${p.id}`}
-                        alt={p.name}
-                        loading="lazy"
-                        className="h-full w-full object-cover"
-                      />
-                      <button
-                        onClick={() =>
-                          setConfirm({
-                            message: 'Delete this photo?',
-                            action: () => void deletePhoto(selected.uid, p.id),
-                          })
-                        }
-                        className="absolute right-1 top-1 hidden rounded-md bg-ink/70 px-2 py-1 text-xs text-canvas group-hover:block"
-                      >
-                        Delete
-                      </button>
+                      {p.ready ? (
+                        <>
+                          <img
+                            src={`/api/a/${selected.uid}/thumb/${p.id}`}
+                            alt={p.name}
+                            loading="lazy"
+                            className="h-full w-full object-cover"
+                          />
+                          <button
+                            onClick={() =>
+                              setConfirm({
+                                message: 'Delete this photo?',
+                                action: () => void deletePhoto(selected.uid, p.id),
+                              })
+                            }
+                            className="absolute right-1 top-1 hidden rounded-md bg-ink/70 px-2 py-1 text-xs text-canvas group-hover:block"
+                          >
+                            Delete
+                          </button>
+                        </>
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center" title="Processing…">
+                          <Spinner className="h-5 w-5" />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

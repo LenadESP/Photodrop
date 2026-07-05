@@ -1,5 +1,5 @@
 import { open } from 'node:fs/promises';
-import sharp from 'sharp';
+import sharp, { type Metadata } from 'sharp';
 import { env } from '../env.js';
 
 // 2017 dual-core CPU + a hard memory ceiling: never decode two images at once,
@@ -48,6 +48,35 @@ export async function sniffImageKind(filePath: string): Promise<ImageKind | null
   } finally {
     await fh.close();
   }
+}
+
+export interface ImageProbe {
+  kind: ImageKind;
+  width: number;
+  height: number;
+}
+
+// Cheap ingest-time validation: real type from magic bytes + a header-only
+// dimension read (no full pixel decode). Rejects non-images, wrong types, and —
+// via the declared dimensions vs the pixel cap — decompression bombs, so a
+// hostile header is caught before anything is persisted. The definitive decode
+// gate (a full sharp decode that trips on corrupt/hostile pixel data) runs later
+// in the thumbnail worker. Returns display dimensions (EXIF orientation applied),
+// or null if the file is not a valid, in-bounds image.
+export async function probeImage(filePath: string): Promise<ImageProbe | null> {
+  const kind = await sniffImageKind(filePath);
+  if (!kind) return null;
+  let meta: Metadata;
+  try {
+    meta = await sharp(filePath, { limitInputPixels: env.maxImagePixels }).metadata();
+  } catch {
+    return null;
+  }
+  const rawW = meta.width ?? 0;
+  const rawH = meta.height ?? 0;
+  if (rawW <= 0 || rawH <= 0 || rawW * rawH > env.maxImagePixels) return null;
+  const swap = (meta.orientation ?? 1) >= 5;
+  return { kind, width: swap ? rawH : rawW, height: swap ? rawW : rawH };
 }
 
 export interface ThumbResult {

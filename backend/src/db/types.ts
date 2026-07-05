@@ -22,6 +22,8 @@ export interface AlbumRow {
   created_at: number;
 }
 
+export type ThumbStatus = 'pending' | 'ready' | 'failed';
+
 export interface PhotoRow {
   id: number;
   album_uid: string;
@@ -31,5 +33,6 @@ export interface PhotoRow {
   width: number | null;
   height: number | null;
   bytes: number | null;
+  thumb_status: ThumbStatus;
   created_at: number;
 }
