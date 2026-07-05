@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { Static } from '@sinclair/typebox';
 import { env } from '../env.js';
+import { freeBytes } from '../lib/disk.js';
 import { newStoredFilename } from '../lib/ids.js';
 import { originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
 import { makeThumbnail, sniffImageKind } from '../lib/images.js';
@@ -34,6 +35,13 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
       const { uid } = req.params as Static<typeof UidParams>;
       const album = getOwned(uid, req.user.sub);
       if (!album) return reply.code(404).send({ error: 'Not found' });
+
+      // Disk-full guard: refuse the upload before writing anything if the data
+      // volume is below the free-space floor, so a full disk can't leave SQLite
+      // unable to write its WAL (a DB-corruption risk).
+      if ((await freeBytes(env.dataDir)) < env.minFreeBytes) {
+        return reply.code(507).send({ error: 'Insufficient storage on the server' });
+      }
 
       // Stream every part to the data volume (never tmpfs). An oversized file or
       // too many files throws here → the whole upload is rejected, nothing saved.

@@ -48,4 +48,7 @@ export const env = {
   maxFileBytes: intEnv('MAX_FILE_BYTES', 52_428_800),
   maxFilesPerUpload: intEnv('MAX_FILES_PER_UPLOAD', 40),
   maxImagePixels: intEnv('MAX_IMAGE_PIXELS', 50_000_000),
+  // Refuse uploads when free space on the data volume drops below this floor, so
+  // a full disk can't corrupt the SQLite WAL. Default 1 GiB.
+  minFreeBytes: intEnv('MIN_FREE_BYTES', 1_073_741_824),
 } as const;
