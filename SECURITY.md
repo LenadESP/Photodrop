@@ -17,7 +17,7 @@ runs on untrusted image bytes).
 - **Mandatory TOTP.** A correct password issues only a short-lived `enroll` or `mfa`
   scoped token — never a session. A session is granted only after TOTP activation
   (first login) or verification (returning login). See `routes/auth.ts`,
-  `lib/totp.ts` (otplib, ±30 s skew tolerance).
+  `lib/totp.ts` (otplib; accepts the current step ±1, ≈ ±30 s, per RFC 6238 §5.2).
 - **Password hashing.** argon2id with OWASP-baseline parameters
   (`memoryCost 19456 KiB, timeCost 2, parallelism 1`). See `lib/hash.ts`.
 - **Argon2 verified before bytes are served.** Album passwords are checked with
