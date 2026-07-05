@@ -3,10 +3,6 @@ import qrcode from 'qrcode';
 
 const ISSUER = 'photodrop';
 
-// TOTP step, in ms. otplib's default period; we shift the verification epoch by
-// this to widen the acceptance window (see verifyTotp).
-const PERIOD_MS = 30_000;
-
 export function generateTotpSecret(): string {
   return generateSecret();
 }
@@ -19,20 +15,16 @@ export function totpQrDataUrl(uri: string): Promise<string> {
   return qrcode.toDataURL(uri);
 }
 
-// Accept the current 30 s step plus its two immediate neighbours (±1 step ≈
-// ±30 s), per RFC 6238 §5.2, so a small clock drift or a code entered right at a
-// step boundary still verifies. This library's `epochTolerance` is effectively
-// capped below one full step, so we widen the window by shifting the verification
-// epoch instead of relying on it.
+// Accept the current step plus its immediate neighbours (±1 step ≈ ±30 s), per
+// RFC 6238 §5.2, so a small clock drift or a code entered at a step boundary
+// still verifies. otplib's epochTolerance is in SECONDS against the default epoch
+// (current time), and 30 resolves to exactly ±1 step — verified empirically:
+// tokens from the −30 s / 0 / +30 s steps pass, ±60 s are rejected.
 export async function verifyTotp(token: string, secret: string): Promise<boolean> {
-  const now = Date.now();
-  for (const epoch of [now, now - PERIOD_MS, now + PERIOD_MS]) {
-    try {
-      const result = await verify({ secret, token, epoch });
-      if (result.valid) return true;
-    } catch {
-      /* malformed input for this window — try the next */
-    }
+  try {
+    const result = await verify({ secret, token, epochTolerance: 30 });
+    return result.valid;
+  } catch {
+    return false;
   }
-  return false;
 }
