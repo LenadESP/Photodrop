@@ -17,14 +17,6 @@ Shipped items live in [CHANGELOG.md](CHANGELOG.md). v1.1's reliability tranche
 - [ ] **Disk alert.** The free-space *floor* guard shipped (uploads 507 below
       `MIN_FREE_BYTES`); still want a proactive alert (ntfy) at ~85% disk.
 
-### Delivery & performance
-
-- [ ] **Streamed zip for "Download all" (desktop).** Currently saves photos individually
-      (sequential downloads on desktop). Add an on-the-fly streamed zip (never buffered in
-      RAM/disk) as the desktop path.
-- [ ] **Fix mobile "Download all".** Photos currently land in Downloads instead of the
-      camera roll on some mobile flows; route them through the share sheet properly.
-
 ### Lifecycle & correctness
 
 - [ ] **Link expiry that actually deletes.** Expiring an album must delete the files on

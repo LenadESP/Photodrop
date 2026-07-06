@@ -7,7 +7,7 @@ import { FullPageSpinner } from '../components/Spinner';
 import { Lightbox } from '../components/Lightbox';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { Spinner } from '../components/Spinner';
-import { downloadAllSequential, shareFiles } from '../lib/share';
+import { canShareFiles, downloadAlbumZip, shareFiles } from '../lib/share';
 
 interface Photo {
   id: number;
@@ -116,15 +116,17 @@ export function Gallery() {
   const readyPhotos = photos.filter((p) => p.ready);
   const pendingCount = photos.length - readyPhotos.length;
 
-  // Save every ready photo — one action on mobile via the share sheet ("Save N
-  // Images" to Photos), individual downloads elsewhere. No zip.
+  // Mobile → OS share sheet (one action, "Save N Images" straight into Photos).
+  // Desktop, or if sharing isn't available/declined → a single streamed zip.
   const downloadAll = async () => {
     if (readyPhotos.length === 0 || downloadingAll) return;
     setDownloadingAll(true);
     try {
-      const items = readyPhotos.map((p) => ({ url: `/api/a/${uid}/download/${p.id}`, name: p.name }));
-      const shared = await shareFiles(items);
-      if (!shared) await downloadAllSequential(items);
+      if (canShareFiles()) {
+        const items = readyPhotos.map((p) => ({ url: `/api/a/${uid}/download/${p.id}`, name: p.name }));
+        if (await shareFiles(items)) return;
+      }
+      downloadAlbumZip(uid);
     } finally {
       setDownloadingAll(false);
     }

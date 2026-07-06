@@ -1,4 +1,5 @@
 import { createReadStream, existsSync, statSync } from 'node:fs';
+import { ZipArchive } from 'archiver';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Static } from '@sinclair/typebox';
 import { verifySecret } from '../lib/hash.js';
@@ -195,4 +196,51 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     });
   });
 
+  // ── Download all originals as a streamed zip ──────────────────────────────
+  // On-the-fly, never buffered whole: each original streams straight into the
+  // archive. Store (no compression) — the images are already compressed, so
+  // deflating them only burns CPU for no size win. Desktop "Download all" uses
+  // this; mobile prefers the OS share sheet (individual files → Photos).
+  app.get('/api/a/:uid/zip', { schema: { params: UidParams } }, async (req, reply) => {
+    const { uid } = req.params as Static<typeof UidParams>;
+    const album = getAlbum(uid);
+    if (!album) return reply.code(404).send({ error: 'Not found' });
+    if (!hasAccess(req, album)) {
+      if (album.is_public !== 1 && album.password_hash !== null) {
+        return reply.code(401).send({ passwordRequired: true });
+      }
+      return reply.code(404).send({ error: 'Not found' });
+    }
+
+    const photos = app.db
+      .prepare(
+        "SELECT * FROM photos WHERE album_uid = ? AND thumb_status = 'ready' ORDER BY created_at, id",
+      )
+      .all(uid) as PhotoRow[];
+    if (photos.length === 0) return reply.code(404).send({ error: 'No photos' });
+
+    const archive = new ZipArchive({ store: true }); // store: images are already compressed
+    archive.on('warning', (err) => app.log.warn({ err }, 'zip warning'));
+    archive.on('error', (err) => {
+      app.log.error({ err }, 'zip stream error');
+      reply.raw.destroy(err); // headers are already sent; abort the response
+    });
+
+    reply.header('Content-Type', 'application/zip');
+    reply.header('Content-Disposition', `attachment; filename="${sanitizeDownloadName(album.title)}.zip"`);
+    reply.header('Cache-Control', 'private, no-store');
+
+    // Originals can share a filename; de-duplicate so no entry is silently dropped.
+    const used = new Set<string>();
+    for (const p of photos) {
+      let name = sanitizeDownloadName(p.original_name);
+      if (used.has(name)) name = `${p.id}-${name}`;
+      used.add(name);
+      archive.file(safeJoin(originalsDir(uid), p.stored_filename), { name });
+    }
+
+    reply.send(archive);
+    void archive.finalize();
+    return reply;
+  });
 }

@@ -62,14 +62,8 @@ export async function shareFiles(items: DownloadItem[]): Promise<boolean> {
   }
 }
 
-// Fallback: fetch and download each photo one by one (individual files, no zip).
-// A short gap between each keeps browsers from suppressing the later downloads.
-export async function downloadAllSequential(items: DownloadItem[]): Promise<void> {
-  for (const item of items) {
-    const file = await fetchAsFile(item.url, item.name);
-    const objectUrl = URL.createObjectURL(file);
-    downloadUrl(objectUrl, item.name);
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
-    await new Promise((r) => setTimeout(r, 500));
-  }
+// Desktop "Download all": a single streamed zip from the server (the browser
+// saves it via the response's Content-Disposition). One file, no per-file prompts.
+export function downloadAlbumZip(uid: string): void {
+  downloadUrl(`/api/a/${uid}/zip`);
 }

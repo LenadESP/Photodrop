@@ -6,6 +6,11 @@ All notable changes to photodrop. Dates are ISO‑8601.
 
 ### Added
 
+- **Streamed zip for "Download all" (desktop).** A new `/api/a/:uid/zip` endpoint
+  streams all of an album's originals as an on-the-fly zip (store mode — the images are
+  already compressed), never buffering the whole archive. Desktop "Download all" now
+  fetches this single zip instead of triggering N individual downloads. Access is gated
+  exactly like the per-photo endpoints.
 - **Intermediate display derivative (~2560px).** The worker now also generates a
   ~2560px WebP alongside the thumbnail, and the lightbox serves it (`/api/a/:uid/display/:id`)
   instead of the full-res original — so viewing paints from a small image and the original
@@ -38,6 +43,13 @@ automatically on upgrade (adds `photos.thumb_status`, defaulting existing rows t
 - **Health check probes DB + filesystem.** `/api/health` now runs a trivial query and a
   writability check on the data volume, returning `503` (unhealthy) if either fails —
   a live port with a corrupt DB or unwritable volume no longer reports healthy.
+
+### Changed
+
+- **"Download all" / save flows.** Mobile keeps the OS share sheet (one action → "Save N
+  Images" into Photos), now falling back to the streamed zip instead of loose sequential
+  downloads. In the lightbox, the single-photo action is now one **Save** button that
+  routes through the share sheet on mobile (→ Photos) and downloads on desktop.
 
 ### Fixed
 
