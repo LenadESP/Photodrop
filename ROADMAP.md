@@ -3,24 +3,19 @@
 Direction, not a commitment. This is a single-maintainer project; items land when they
 land. The V1 schema was deliberately shaped so the big V2 item is additive.
 
+Shipped items live in [CHANGELOG.md](CHANGELOG.md). v1.1's reliability tranche
+(async thumbnails, disk-full guard, DB/FS health check) shipped in **0.2.0**.
+
 ## v1.1 — hardening & delivery
 
-### Reliability (highest priority — these can take prod down)
+### Reliability (remaining)
 
-- [ ] **Async thumbnail/preview generation.** Uploads currently generate thumbnails
-      synchronously in the request process; a large batch (e.g. 400 images) starves the
-      event loop and blows memory on a small box. Move generation to a background worker
-      backed by a `jobs` table in SQLite (no external queue), with hard-capped
-      concurrency. Uploads return immediately; the gallery shows a placeholder until each
-      thumb is ready. Worker state lives in the DB so it survives a dirty restart.
-- [ ] **Disk-full guard.** No free-space check before accepting an upload today; a full
-      data volume means SQLite can't write its WAL and the DB can corrupt. Refuse uploads
-      below a free-space floor and alert (ntfy) at ~85% disk.
-- [ ] **Boot-time cleanup / reconciliation.** After an interrupted upload (power loss),
-      sweep leftover files in `tmp/` and reconcile DB rows against on-disk files (rows
-      with no files, files with no rows).
-- [ ] **Health check touches DB + filesystem**, not just a port ping — a live port with a
-      corrupt DB should report unhealthy.
+- [ ] **Boot-time orphan sweep.** The thumbnail queue already self-reconciles on boot
+      (the worker reprocesses any `pending` rows). Still to do: sweep leftover files in
+      `tmp/` and reconcile DB rows against on-disk files (rows with no files, files with
+      no rows) after an interrupted upload.
+- [ ] **Disk alert.** The free-space *floor* guard shipped (uploads 507 below
+      `MIN_FREE_BYTES`); still want a proactive alert (ntfy) at ~85% disk.
 
 ### Delivery & performance
 
@@ -40,13 +35,19 @@ land. The V1 schema was deliberately shaped so the big V2 item is additive.
 
 - [ ] **Link expiry that actually deletes.** Expiring an album must delete the files on
       disk (`rm -rf albums/<uid>/`) and the DB row, not just mark it inaccessible.
-- [ ] **Rate-limit the per-album password check.** Admin login has lockout; confirm the
-      per-album unlock is rate-limited too, so a password-gated album isn't brute-forceable.
+
+### Security follow-ups (from the v1.1 audit)
+
+- [ ] **Session revocation.** Refresh tokens aren't rotated on use and logout only clears
+      cookies client-side, so a captured token stays valid until expiry. Rotate the
+      refresh token on every `/refresh` and add a `token_version` (bumped on logout /
+      password change) so sessions can be invalidated server-side.
 
 ### Backup
 
 - [ ] **Online SQLite backup.** When the external backup lands, dump `photodrop.db` with
       `sqlite3 .backup` / `VACUUM INTO`, never a raw copy of a live WAL database.
+      (A manual pre-upgrade `.db` copy is already taken by the deploy process.)
 
 ## Planned (V2 and beyond)
 

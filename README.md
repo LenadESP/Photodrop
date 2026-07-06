@@ -90,6 +90,7 @@ Essential variables (from [`.env.example`](.env.example)):
 | `MAX_FILE_BYTES`       | no       | `52428800` (50 MB)   | Per-file upload cap.                                                    |
 | `MAX_FILES_PER_UPLOAD` | no       | `40`                 | Per-request file count cap (the frontend chunks larger drops).         |
 | `MAX_IMAGE_PIXELS`     | no       | `50000000` (50 MP)   | Decode cap — a decompression-bomb guard.                               |
+| `MIN_FREE_BYTES`       | no       | `1073741824` (1 GiB) | Refuse uploads below this free space (protects the SQLite WAL).        |
 
 The startup guard refuses to boot in production if any secret still holds a
 `CHANGE_ME` placeholder.
@@ -114,20 +115,24 @@ SQLite database plus photo files on a mounted volume — no external services. S
 
 ## Status
 
-In production, single-operator. Runs the author's photo delivery at
-`https://photos.lenadesp.org`. It's a one-admin tool by design: one seeded account,
+In production, single-operator (currently **v0.2.0**). Runs the author's photo delivery
+at `https://photos.lenadesp.org`. It's a one-admin tool by design: one seeded account,
 mandatory TOTP, no self-service user management. The V2 client-portal groundwork
 (user roles, `album_assignments`) is in the schema but not yet wired to routes.
 
+Uploads are processed asynchronously — the dashboard returns immediately and thumbnails
+appear as a background worker finishes each photo (see [CHANGELOG.md](CHANGELOG.md)).
+
 ## Roadmap
 
+- [ ] Delivery: intermediate display size, streamed zip download, edge-cacheable previews
+- [ ] Link expiry that deletes files
+- [ ] Session revocation (refresh rotation + server-side invalidation)
 - [ ] V2 client portal — per-user album assignments (schema scaffolding already present)
-- [ ] TOTP recovery codes
-- [ ] Multi-admin / user management
-- [ ] Optional zip download for "Download all"
-- [ ] Automated test suite
+- [ ] TOTP recovery codes · multi-admin / user management · automated test suite
 
-Detail and rationale in [ROADMAP.md](ROADMAP.md).
+Shipped changes in [CHANGELOG.md](CHANGELOG.md); full detail and rationale in
+[ROADMAP.md](ROADMAP.md).
 
 ## Tech stack
 
@@ -141,6 +146,7 @@ Detail and rationale in [ROADMAP.md](ROADMAP.md).
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — internals, data layout, design decisions.
 - [docs/INSTALL.md](docs/INSTALL.md) — full install and deployment guide.
 - [SECURITY.md](SECURITY.md) — security model and vulnerability reporting.
+- [CHANGELOG.md](CHANGELOG.md) — notable changes per release.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup and conventions.
 
 ## License
