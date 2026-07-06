@@ -213,6 +213,14 @@ no password, and returns an identical response, so it's not an existence oracle.
 File paths are always built from a validated uid and a random stored filename, then run
 through `safeJoin` as defence-in-depth against traversal.
 
+**Caching.** Stored filenames are random and their bytes are never rewritten, so content
+is immutable. Thumbnails of **public** albums are sent `Cache-Control: public, max-age=1y,
+immutable` + an `ETag` (`If-None-Match` → 304), so the browser and a CDN edge can cache
+them and repeat views skip the origin. Private/password-album thumbnails and all
+full-size originals stay `private` — never shared-cached, or the URL alone would bypass
+the access gate. (Edge caching at Cloudflare additionally needs a cache rule for
+`/api/a/*/thumb/*` — infra outside this repo; the app's part is the headers.)
+
 ## Design decisions & gotchas
 
 - **Node 22, ESM only.** The backend is `"type": "module"` with

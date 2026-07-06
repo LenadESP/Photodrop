@@ -51,17 +51,38 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     }
   }
 
-  function sendImage(reply: FastifyReply, filePath: string, mime: string, downloadName?: string) {
-    let size: number;
+  interface SendOpts {
+    downloadName?: string;
+    // Stored filenames are random and their bytes are never rewritten, so the
+    // content is immutable. `cacheable` is set only for PUBLIC albums — a
+    // private/password album must never be cached by a shared/CDN cache, or the
+    // URL alone would serve it past the access gate.
+    cacheable?: boolean;
+  }
+
+  function sendImage(
+    req: FastifyRequest,
+    reply: FastifyReply,
+    filePath: string,
+    mime: string,
+    opts: SendOpts = {},
+  ) {
+    let stat;
     try {
-      size = statSync(filePath).size;
+      stat = statSync(filePath);
     } catch {
       return reply.code(404).send({ error: 'Not found' });
     }
-    reply.header('Cache-Control', 'private, max-age=3600');
-    reply.header('Content-Length', size);
-    if (downloadName) {
-      reply.header('Content-Disposition', `attachment; filename="${downloadName}"`);
+    const etag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+    reply.header('ETag', etag);
+    reply.header(
+      'Cache-Control',
+      opts.cacheable ? 'public, max-age=31536000, immutable' : 'private, max-age=3600',
+    );
+    if (req.headers['if-none-match'] === etag) return reply.code(304).send();
+    reply.header('Content-Length', stat.size);
+    if (opts.downloadName) {
+      reply.header('Content-Disposition', `attachment; filename="${opts.downloadName}"`);
     }
     return reply.type(mime).send(createReadStream(filePath));
   }
@@ -127,7 +148,9 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
     const photo = getReadyPhoto(uid, id);
     if (!photo) return reply.code(404).send({ error: 'Not found' });
-    return sendImage(reply, safeJoin(thumbsDir(uid), photo.thumb_path), 'image/webp');
+    return sendImage(req, reply, safeJoin(thumbsDir(uid), photo.thumb_path), 'image/webp', {
+      cacheable: album.is_public === 1,
+    });
   });
 
   // ── Full-quality original (inline) ────────────────────────────────────────
@@ -138,7 +161,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const photo = getReadyPhoto(uid, id);
     if (!photo) return reply.code(404).send({ error: 'Not found' });
     const filePath = safeJoin(originalsDir(uid), photo.stored_filename);
-    return sendImage(reply, filePath, extToMime(photo.stored_filename));
+    return sendImage(req, reply, filePath, extToMime(photo.stored_filename));
   });
 
   // ── Download one original (attachment) ────────────────────────────────────
@@ -149,7 +172,9 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const photo = getReadyPhoto(uid, id);
     if (!photo) return reply.code(404).send({ error: 'Not found' });
     const filePath = safeJoin(originalsDir(uid), photo.stored_filename);
-    return sendImage(reply, filePath, extToMime(photo.stored_filename), sanitizeDownloadName(photo.original_name));
+    return sendImage(req, reply, filePath, extToMime(photo.stored_filename), {
+      downloadName: sanitizeDownloadName(photo.original_name),
+    });
   });
 
 }

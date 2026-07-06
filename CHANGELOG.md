@@ -2,6 +2,16 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [Unreleased] — v1.1 delivery & performance
+
+### Added
+
+- **Edge-cacheable public thumbnails.** Public-album thumbnails are served
+  `Cache-Control: public, max-age=1y, immutable` with an `ETag` (and honour
+  `If-None-Match` → 304), so the browser and a CDN edge can cache them. Private and
+  password-album thumbnails, and all full-size originals, remain `private` — never
+  shared-cached. (Edge caching at Cloudflare also needs a cache rule for the thumb path.)
+
 ## [0.2.0] — 2026-07-06 — v1.1 (reliability)
 
 Reliability and hardening pass. No breaking API changes; migration `002` runs

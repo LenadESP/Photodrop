@@ -28,8 +28,6 @@ Shipped items live in [CHANGELOG.md](CHANGELOG.md). v1.1's reliability tranche
       RAM/disk) as the desktop path.
 - [ ] **Fix mobile "Download all".** Photos currently land in Downloads instead of the
       camera roll on some mobile flows; route them through the share sheet properly.
-- [ ] **Edge-cacheable previews.** Serve thumbnails/previews with `Cache-Control: immutable`
-      + ETag so Cloudflare caches them and repeat views never hit the origin.
 
 ### Lifecycle & correctness
 
