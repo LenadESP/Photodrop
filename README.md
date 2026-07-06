@@ -115,7 +115,7 @@ SQLite database plus photo files on a mounted volume — no external services. S
 
 ## Status
 
-In production, single-operator (currently **v0.2.0**). Runs the author's photo delivery
+In production, single-operator (currently **v1.1.0**). Runs the author's photo delivery
 at `https://photos.lenadesp.org`. It's a one-admin tool by design: one seeded account,
 mandatory TOTP, no self-service user management. The V2 client-portal groundwork
 (user roles, `album_assignments`) is in the schema but not yet wired to routes.

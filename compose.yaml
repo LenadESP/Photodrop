@@ -12,7 +12,7 @@ services:
       context: .
       args:
         NODE_VERSION: "22"
-    image: homelab/photodrop:0.2.0
+    image: homelab/photodrop:1.1.0
     container_name: apps-photodrop
     restart: unless-stopped
     env_file: .env
