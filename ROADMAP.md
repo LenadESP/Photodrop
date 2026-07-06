@@ -6,6 +6,20 @@ land. The V1 schema was deliberately shaped so the big V2 item is additive.
 Shipped items live in [CHANGELOG.md](CHANGELOG.md). v1.1's reliability tranche
 (async thumbnails, disk-full guard, DB/FS health check) shipped in **0.2.0**.
 
+## v1.1.2 — audit cleanups (next)
+
+From the v1.1.1 security audit. Both are correctness/hygiene, not vulnerabilities.
+
+- [ ] **`/display` fallback must not be cached as `immutable`.** When a display derivative
+      is absent, `public.ts` serves the full-res original but still sends
+      `Cache-Control: public, max-age=1y, immutable` for public albums — so a browser that
+      cached the fallback keeps the full-size image for a year even after `backfill-display`
+      generates the real webp. Send `no-cache`/short max-age on the original-fallback path
+      (or backfill before exposing), and reserve `immutable` for the real derivative.
+- [ ] **Per-photo delete leaves an orphaned display derivative.** The DELETE in
+      `admin.upload.ts` removes `originals/` + `thumbs/` but not `display/` (added in v1.1.0).
+      Add `displayDir(uid)` to the rmSync loop. No exposure (the row is gone), just a disk leak.
+
 ## v1.1 — hardening & delivery
 
 ### Reliability (remaining)
@@ -35,7 +49,22 @@ Shipped items live in [CHANGELOG.md](CHANGELOG.md). v1.1's reliability tranche
       `sqlite3 .backup` / `VACUUM INTO`, never a raw copy of a live WAL database.
       (A manual pre-upgrade `.db` copy is already taken by the deploy process.)
 
-## Planned (V2 and beyond)
+## v1.2.0 — hardening (from the v1.1.1 audit)
+
+Defence-in-depth items; none is a live exposure on the proxied production deploy.
+
+- [ ] **Configurable proxy-trust depth.** `trustProxy` is hard-coded to `1`. In the shipped
+      standalone mode (published `3000:3000`, no proxy) a client can spoof `X-Forwarded-For`
+      and evade the per-IP rate limit (per-user lockout is unaffected — it's keyed on the DB
+      row). Make the trust depth an env var, and verify the Caddy→app XFF hop count behind the
+      Cloudflare Tunnel on the live deploy.
+- [ ] **Rate-limit the bulk byte endpoints.** `/api/a/:uid/zip` (and the per-photo byte
+      routes) fall back to the global 1000/min only; a public link can be pulled repeatedly.
+      Add a modest per-route cap.
+- [ ] **TOTP replay protection.** A code stays replayable across its ±1-step (~90 s) window;
+      track the last-used step per user so a code can't be reused within its validity.
+
+## v2.0.0
 
 - [ ] **V2 client portal.** Per-user album assignments so a client logs in and sees only
       their albums. `users.role` and `album_assignments` already exist in `001_init.sql`;
