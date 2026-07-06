@@ -1,9 +1,9 @@
-import { rmSync } from 'node:fs';
+import { mkdirSync, rmSync } from 'node:fs';
 import fp from 'fastify-plugin';
 import type { FastifyInstance } from 'fastify';
-import { makeThumbnail } from '../lib/images.js';
+import { makeDisplay, makeThumbnail } from '../lib/images.js';
 import { stripAllMetadata } from '../lib/exif.js';
-import { originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
+import { displayDir, originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
 import type { AlbumRow, PhotoRow } from '../db/types.js';
 
 declare module 'fastify' {
@@ -35,9 +35,12 @@ export default fp(async function thumbnailerPlugin(app: FastifyInstance): Promis
       | undefined;
     const original = safeJoin(originalsDir(photo.album_uid), photo.stored_filename);
     const thumb = safeJoin(thumbsDir(photo.album_uid), photo.thumb_path);
+    const display = safeJoin(displayDir(photo.album_uid), photo.thumb_path);
 
     try {
+      mkdirSync(displayDir(photo.album_uid), { recursive: true }); // may predate the display dir
       await makeThumbnail(original, thumb); // full decode — the definitive gate
+      await makeDisplay(original, display); // intermediate size for the lightbox
       if (album && album.exif_strip === 1) await stripAllMetadata(original);
       app.db.prepare("UPDATE photos SET thumb_status = 'ready' WHERE id = ?").run(photo.id);
     } catch (err) {
@@ -45,7 +48,7 @@ export default fp(async function thumbnailerPlugin(app: FastifyInstance): Promis
       // entirely (row + on-disk files) rather than leave a broken photo behind.
       app.log.warn({ err, photoId: photo.id }, 'thumbnail generation failed; removing photo');
       app.db.prepare('DELETE FROM photos WHERE id = ?').run(photo.id);
-      for (const p of [original, thumb]) {
+      for (const p of [original, thumb, display]) {
         try {
           rmSync(p, { force: true });
         } catch {

@@ -10,6 +10,9 @@ sharp.cache(false);
 export type ImageKind = 'jpg' | 'png' | 'webp';
 
 const THUMB_SIZE = 480;
+// Intermediate "display" derivative: longest edge, served to the gallery/lightbox
+// so viewers don't fetch a full-res original to paint a ~1080p–1440p screen.
+const DISPLAY_SIZE = 2560;
 
 // Determine the real type from magic bytes. The extension and the multipart
 // mimetype are attacker-controlled and ignored. SVG (XML) can never match.
@@ -105,4 +108,16 @@ export async function makeThumbnail(srcPath: string, destThumbPath: string): Pro
   const w = meta.width ?? 0;
   const h = meta.height ?? 0;
   return { width: swap ? h : w, height: swap ? w : h };
+}
+
+// Intermediate display derivative (webp, longest edge DISPLAY_SIZE, never
+// enlarged — a smaller original just passes through at its own size). Metadata is
+// dropped by default, so it carries no GPS. Generated in the worker alongside the
+// thumbnail; the lightbox serves this instead of the full-res original.
+export async function makeDisplay(srcPath: string, destPath: string): Promise<void> {
+  await sharp(srcPath, { limitInputPixels: env.maxImagePixels })
+    .rotate()
+    .resize(DISPLAY_SIZE, DISPLAY_SIZE, { fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 82 })
+    .toFile(destPath);
 }

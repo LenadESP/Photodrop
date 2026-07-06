@@ -1,10 +1,10 @@
-import { createReadStream, statSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Static } from '@sinclair/typebox';
 import { verifySecret } from '../lib/hash.js';
 import { ACCESS_COOKIE, albumCookie, albumCookieOpts } from '../lib/cookies.js';
 import type { AccessClaims } from '../plugins/auth.js';
-import { originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
+import { displayDir, originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
 import { extToMime, sanitizeDownloadName } from '../lib/mime.js';
 import { UidParams, UidPhotoParams } from '../schemas/common.js';
 import { UnlockBody } from '../schemas/albums.js';
@@ -151,6 +151,24 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     return sendImage(req, reply, safeJoin(thumbsDir(uid), photo.thumb_path), 'image/webp', {
       cacheable: album.is_public === 1,
     });
+  });
+
+  // ── Intermediate "display" derivative (inline) ────────────────────────────
+  // Served to the lightbox so viewers don't download a full-res original. Falls
+  // back to the original for photos uploaded before display derivatives existed.
+  app.get('/api/a/:uid/display/:id', { schema: { params: UidPhotoParams } }, async (req, reply) => {
+    const { uid, id } = req.params as Static<typeof UidPhotoParams>;
+    const album = getAlbum(uid);
+    if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
+    const photo = getReadyPhoto(uid, id);
+    if (!photo) return reply.code(404).send({ error: 'Not found' });
+    const cacheable = album.is_public === 1;
+    const displayPath = safeJoin(displayDir(uid), photo.thumb_path);
+    if (existsSync(displayPath)) {
+      return sendImage(req, reply, displayPath, 'image/webp', { cacheable });
+    }
+    const original = safeJoin(originalsDir(uid), photo.stored_filename);
+    return sendImage(req, reply, original, extToMime(photo.stored_filename), { cacheable });
   });
 
   // ── Full-quality original (inline) ────────────────────────────────────────

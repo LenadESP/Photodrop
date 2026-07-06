@@ -6,6 +6,10 @@ All notable changes to photodrop. Dates are ISO‑8601.
 
 ### Added
 
+- **Intermediate display derivative (~2560px).** The worker now also generates a
+  ~2560px WebP alongside the thumbnail, and the lightbox serves it (`/api/a/:uid/display/:id`)
+  instead of the full-res original — so viewing paints from a small image and the original
+  is only fetched on download. Photos uploaded before this fall back to the original.
 - **Edge-cacheable public thumbnails.** Public-album thumbnails are served
   `Cache-Control: public, max-age=1y, immutable` with an `ETag` (and honour
   `If-None-Match` → 304), so the browser and a CDN edge can cache them. Private and

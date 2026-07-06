@@ -27,6 +27,10 @@ export function thumbsDir(uid: string): string {
   return join(albumDir(uid), 'thumbs');
 }
 
+export function displayDir(uid: string): string {
+  return join(albumDir(uid), 'display');
+}
+
 // Resolve `name` under `base` and refuse anything that escapes it (defence in
 // depth — stored filenames are already random, never user-derived).
 export function safeJoin(base: string, name: string): string {

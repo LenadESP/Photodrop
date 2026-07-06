@@ -122,7 +122,7 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
           </button>
         )}
         <img
-          src={`/api/a/${uid}/photo/${photo.id}`}
+          src={`/api/a/${uid}/display/${photo.id}`}
           alt={photo.name}
           draggable={false}
           className="max-h-full max-w-full select-none object-contain"

@@ -19,10 +19,6 @@ Shipped items live in [CHANGELOG.md](CHANGELOG.md). v1.1's reliability tranche
 
 ### Delivery & performance
 
-- [ ] **Intermediate "display" size (~2560px).** Viewing currently serves full-res
-      originals, forcing clients to decode 24 MP to paint a ~1080p screen. Generate a
-      third derivative; lightbox and gallery serve it, originals are only touched on
-      download.
 - [ ] **Streamed zip for "Download all" (desktop).** Currently saves photos individually
       (sequential downloads on desktop). Add an on-the-fly streamed zip (never buffered in
       RAM/disk) as the desktop path.
