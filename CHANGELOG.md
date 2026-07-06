@@ -2,6 +2,20 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.1.1] — 2026-07-06
+
+### Changed
+
+- **Display derivative is now ~1920px** (longest edge), down from 2560, so the lightbox
+  paints from a ~1080p-class image instead of something near the original.
+
+### Fixed
+
+- **Backfilled display derivatives** for photos uploaded before 1.1.0, which were still
+  being served as full-size originals via the fallback path. Added a reusable
+  `dist/scripts/backfill-display.js` maintenance script (writes atomically; `--force`
+  re-renders existing derivatives, e.g. after a size change).
+
 ## [1.1.0] — 2026-07-06 — reliability, delivery & performance
 
 The v1.1 release. No breaking API changes; migration `002` runs automatically on
@@ -59,4 +73,5 @@ servable).
 - Confirmed TOTP verification tolerates ±1 step (~±30 s) per RFC 6238 §5.2, and the
   per‑album unlock is rate‑limited (10/min) — both verified, no change required.
 
+[1.1.1]: https://github.com/LenadESP/Photodrop/releases/tag/v1.1.1
 [1.1.0]: https://github.com/LenadESP/Photodrop/releases/tag/v1.1.0

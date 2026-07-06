@@ -10,9 +10,9 @@ sharp.cache(false);
 export type ImageKind = 'jpg' | 'png' | 'webp';
 
 const THUMB_SIZE = 480;
-// Intermediate "display" derivative: longest edge, served to the gallery/lightbox
-// so viewers don't fetch a full-res original to paint a ~1080p–1440p screen.
-const DISPLAY_SIZE = 2560;
+// Intermediate "display" derivative: longest edge, served to the lightbox so
+// viewers don't fetch a full-res original to paint a ~1080p screen.
+const DISPLAY_SIZE = 1920;
 
 // Determine the real type from magic bytes. The extension and the multipart
 // mimetype are attacker-controlled and ignored. SVG (XML) can never match.

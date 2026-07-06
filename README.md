@@ -22,8 +22,8 @@ Put the file at docs/media/demo.gif and reference it as:
   served. Plus a public/private toggle.
 - **Gallery** — responsive thumbnail grid, full-screen lightbox with zoom + drag-to-pan,
   download-one, and "Save to Photos" via the mobile share sheet.
-- **Download all** — saves every photo individually (share sheet on mobile, sequential
-  downloads elsewhere). No zip.
+- **Download all** — a streamed zip on desktop; the OS share sheet on mobile ("Save N
+  Images" straight to Photos).
 - **EXIF stripping** — GPS and camera metadata removed losslessly at upload, on by
   default, per-album toggle.
 - **Dark mode** — follows the OS preference, with a persisted manual toggle.
@@ -106,6 +106,7 @@ The startup guard refuses to boot in production if any secret still holds a
                                                     ▼                           ▼
                                              SQLite (WAL)              filesystem
                                           data/photodrop.db      albums/<uid>/originals
+                                                                 albums/<uid>/display
                                                                  albums/<uid>/thumbs
 ```
 
@@ -115,7 +116,7 @@ SQLite database plus photo files on a mounted volume — no external services. S
 
 ## Status
 
-In production, single-operator (currently **v1.1.0**). Runs the author's photo delivery
+In production, single-operator (currently **v1.1.1**). Runs the author's photo delivery
 at `https://photos.lenadesp.org`. It's a one-admin tool by design: one seeded account,
 mandatory TOTP, no self-service user management. The V2 client-portal groundwork
 (user roles, `album_assignments`) is in the schema but not yet wired to routes.
@@ -125,7 +126,6 @@ appear as a background worker finishes each photo (see [CHANGELOG.md](CHANGELOG.
 
 ## Roadmap
 
-- [ ] Delivery: intermediate display size, streamed zip download, edge-cacheable previews
 - [ ] Link expiry that deletes files
 - [ ] Session revocation (refresh rotation + server-side invalidation)
 - [ ] V2 client portal — per-user album assignments (schema scaffolding already present)
