@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Button } from './Button';
-import { canShareFiles, downloadUrl, shareFile } from '../lib/share';
+import { downloadUrl, shareFile } from '../lib/share';
 
 export interface LightboxPhoto {
   id: number;
@@ -94,10 +93,10 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
         </span>
         <div className="flex items-center gap-1">
           <button
-            onClick={() => downloadUrl(downloadHref, photo.name)}
+            onClick={() => void onSave()}
             className="rounded-lg px-3 py-1.5 text-sm hover:bg-white/10"
           >
-            Download
+            Save
           </button>
           <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm hover:bg-white/10">
             Close
@@ -149,11 +148,6 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
             <path d="M12 5v14M5 12h14" />
           </svg>
         </button>
-        {canShareFiles() && (
-          <Button variant="secondary" size="sm" onClick={() => void onSave()}>
-            Save to Photos
-          </Button>
-        )}
       </div>
     </div>
   );
