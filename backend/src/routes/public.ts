@@ -59,6 +59,11 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     // private/password album must never be cached by a shared/CDN cache, or the
     // URL alone would serve it past the access gate.
     cacheable?: boolean;
+    // Fallback content that a later backfill supersedes (an original served where
+    // the display derivative doesn't exist yet) must revalidate on every use, or
+    // a cached copy would keep being served after the real derivative appears.
+    // Wins over `cacheable`. ETag revalidation keeps repeat views cheap.
+    revalidate?: boolean;
   }
 
   function sendImage(
@@ -78,7 +83,11 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     reply.header('ETag', etag);
     reply.header(
       'Cache-Control',
-      opts.cacheable ? 'public, max-age=31536000, immutable' : 'private, max-age=3600',
+      opts.revalidate
+        ? 'private, no-cache'
+        : opts.cacheable
+          ? 'public, max-age=31536000, immutable'
+          : 'private, max-age=3600',
     );
     if (req.headers['if-none-match'] === etag) return reply.code(304).send();
     reply.header('Content-Length', stat.size);
@@ -169,7 +178,8 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
       return sendImage(req, reply, displayPath, 'image/webp', { cacheable });
     }
     const original = safeJoin(originalsDir(uid), photo.stored_filename);
-    return sendImage(req, reply, original, extToMime(photo.stored_filename), { cacheable });
+    // Pre-derivative fallback: never immutable — backfill-display supersedes it.
+    return sendImage(req, reply, original, extToMime(photo.stored_filename), { revalidate: true });
   });
 
   // ── Full-quality original (inline) ────────────────────────────────────────
