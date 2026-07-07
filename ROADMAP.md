@@ -20,6 +20,30 @@ From the v1.1.1 security audit. Both are correctness/hygiene, not vulnerabilitie
       `admin.upload.ts` removes `originals/` + `thumbs/` but not `display/` (added in v1.1.0).
       Add `displayDir(uid)` to the rmSync loop. No exposure (the row is gone), just a disk leak.
 
+## v1.1.3 — polish (after v1.1.2)
+
+Small correctness/efficiency items from the 2026-07-07 full audit. None is a
+vulnerability; none is user-visible today.
+
+- [ ] **Album list fires one COUNT per album (N+1).** `admin.albums.ts` `summary()` runs
+      `SELECT COUNT(*)` per row when listing albums; fold the counts into the list query
+      with a `LEFT JOIN photos … GROUP BY`. Irrelevant at single-admin scale, cheap to fix.
+- [ ] **Long-cache the hashed SPA assets.** Vite emits content-hashed `assets/*` files but
+      `@fastify/static` serves them with no `Cache-Control`, so repeat visits refetch the
+      bundle. Serve `assets/` with `public, max-age=1y, immutable`; `index.html` keeps
+      revalidating (it's the pointer to the hashes).
+- [ ] **Intermediate-token cookie outlives its JWT.** The `enroll`/`mfa` cookies reuse
+      `accessCookieOpts` (15 min) while the tokens inside expire at 10 min. The JWT expiry
+      governs, so this is hygiene only — add a 10-min cookie variant so the cookie and
+      token lifetimes match.
+- [ ] **`/api/auth/refresh` ignores account lockout.** A valid refresh token mints a new
+      session even while the account is locked (`locked_until`). Check the lock before
+      issuing. (Full server-side invalidation is the separate session-revocation item.)
+
+Infra reminder (outside this repo): the Cloudflare cache rule for `/api/a/*/thumb/*` —
+the edge half of the 1.1.0 edge-cacheable thumbnails — is still not configured in the
+CF dashboard.
+
 ## v1.1 — hardening & delivery
 
 ### Reliability (remaining)
