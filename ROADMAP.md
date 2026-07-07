@@ -6,21 +6,7 @@ land. The V1 schema was deliberately shaped so the big V2 item is additive.
 Shipped items live in [CHANGELOG.md](CHANGELOG.md). v1.1's reliability tranche
 (async thumbnails, disk-full guard, DB/FS health check) shipped in **1.1.0**.
 
-## v1.1.2 — audit cleanups (next)
-
-From the v1.1.1 security audit. Both are correctness/hygiene, not vulnerabilities.
-
-- [ ] **`/display` fallback must not be cached as `immutable`.** When a display derivative
-      is absent, `public.ts` serves the full-res original but still sends
-      `Cache-Control: public, max-age=1y, immutable` for public albums — so a browser that
-      cached the fallback keeps the full-size image for a year even after `backfill-display`
-      generates the real webp. Send `no-cache`/short max-age on the original-fallback path
-      (or backfill before exposing), and reserve `immutable` for the real derivative.
-- [ ] **Per-photo delete leaves an orphaned display derivative.** The DELETE in
-      `admin.upload.ts` removes `originals/` + `thumbs/` but not `display/` (added in v1.1.0).
-      Add `displayDir(uid)` to the rmSync loop. No exposure (the row is gone), just a disk leak.
-
-## v1.1.3 — polish (after v1.1.2)
+## v1.1.3 — polish (next)
 
 Small correctness/efficiency items from the 2026-07-07 full audit. None is a
 vulnerability; none is user-visible today.

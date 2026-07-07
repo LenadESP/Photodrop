@@ -2,6 +2,23 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.1.2] — 2026-07-07 — audit cleanups
+
+The two hygiene items from the v1.1.1 security audit. No API or schema changes.
+
+### Fixed
+
+- **Display fallback is no longer cached as `immutable`.** For photos that predate
+  display derivatives, `/api/a/:uid/display/:id` falls back to the full-res original
+  but used to send it with the derivative's `Cache-Control` — on public albums
+  `public, max-age=1y, immutable`, so a browser that cached the fallback kept the
+  full-size image even after `backfill-display` generated the real webp. The fallback
+  now sends `private, no-cache`; ETag revalidation keeps repeat views cheap, and
+  `immutable` is reserved for real derivatives.
+- **Deleting a photo now removes its display derivative.** The per-photo DELETE
+  removed the original and thumbnail but left the `display/` file behind (a disk
+  leak — no exposure, the row was already gone).
+
 ## [1.1.1] — 2026-07-06
 
 ### Changed
@@ -73,5 +90,6 @@ servable).
 - Confirmed TOTP verification tolerates ±1 step (~±30 s) per RFC 6238 §5.2, and the
   per‑album unlock is rate‑limited (10/min) — both verified, no change required.
 
+[1.1.2]: https://github.com/LenadESP/Photodrop/releases/tag/v1.1.2
 [1.1.1]: https://github.com/LenadESP/Photodrop/releases/tag/v1.1.1
 [1.1.0]: https://github.com/LenadESP/Photodrop/releases/tag/v1.1.0
