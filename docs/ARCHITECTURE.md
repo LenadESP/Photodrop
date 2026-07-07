@@ -19,6 +19,7 @@ no external services, queues, or object stores.
                                                     ▼                           ▼
                                              SQLite (WAL)              filesystem
                                           data/photodrop.db      albums/<uid>/originals
+                                                                 albums/<uid>/display
                                                                  albums/<uid>/thumbs
 ```
 
@@ -34,7 +35,7 @@ backend/
       index.ts             opens better-sqlite3 (WAL)
       migrate.ts           file-based migration runner (_migrations table)
       bootstrap.ts         seeds the single admin on first boot
-      migrations/001_init.sql
+      migrations/*.sql     001 init schema, 002 thumb_status (async pipeline)
       types.ts             row types
     lib/
       cookies.ts           cookie names + serialize options per token type
@@ -46,11 +47,13 @@ backend/
       images.ts            magic-byte sniff + sharp decode/thumbnail gate
       exif.ts              exiftool-vendored lossless metadata strip
       mime.ts              ext→mime, Content-Disposition sanitizer
+      disk.ts              free-space probe for the disk-full upload guard
     plugins/
       security.ts          helmet + global rate limit
       sqlite.ts            db decorator, runs migrations + admin seed
       auth.ts              @fastify/cookie + @fastify/jwt, scope guards
       csrf.ts              global double-submit CSRF hook
+      thumbnailer.ts       background worker: full decode + thumb/display + EXIF strip
     routes/
       health.ts            GET /api/health
       auth.ts              login, TOTP enroll/verify, refresh, logout, csrf, config
@@ -58,6 +61,8 @@ backend/
       admin.upload.ts      photo upload + delete
       public.ts            album view, unlock, thumb/photo/download bytes
     schemas/               TypeBox request schemas (auth, albums, common)
+    scripts/
+      backfill-display.ts  maintenance: (re)generate display derivatives (run via docker exec)
 frontend/
   src/
     pages/                 Home, Login, Gallery, Admin

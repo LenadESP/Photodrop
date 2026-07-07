@@ -4,7 +4,7 @@ Direction, not a commitment. This is a single-maintainer project; items land whe
 land. The V1 schema was deliberately shaped so the big V2 item is additive.
 
 Shipped items live in [CHANGELOG.md](CHANGELOG.md). v1.1's reliability tranche
-(async thumbnails, disk-full guard, DB/FS health check) shipped in **0.2.0**.
+(async thumbnails, disk-full guard, DB/FS health check) shipped in **1.1.0**.
 
 ## v1.1.2 — audit cleanups (next)
 
