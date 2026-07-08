@@ -33,15 +33,23 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   async function issueSession(reply: FastifyReply, user: UserRow): Promise<void> {
     const access = await reply.jwtSign(
-      { sub: user.id, role: user.role, scope: 'session' },
+      { sub: user.id, role: user.role, scope: 'session', tv: user.token_version },
       { expiresIn: '15m' },
     );
     const refresh = await reply.jwtSign(
-      { sub: user.id, scope: 'refresh' },
+      { sub: user.id, scope: 'refresh', tv: user.token_version },
       { expiresIn: '7d' },
     );
     reply.setCookie(ACCESS_COOKIE, access, accessCookieOpts);
     reply.setCookie(REFRESH_COOKIE, refresh, refreshCookieOpts);
+  }
+
+  // Reject a TOTP code whose matched step was already used (replay), tracking the
+  // last accepted step per user. Returns false when the code is a replay.
+  function recordTotpStep(user: UserRow, step: number): boolean {
+    if (user.totp_last_step !== null && step <= user.totp_last_step) return false;
+    app.db.prepare('UPDATE users SET totp_last_step = ? WHERE id = ?').run(step, user.id);
+    return true;
   }
 
   function registerFailure(user: UserRow): void {
@@ -118,8 +126,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (!user || !user.totp_secret) {
         return reply.code(400).send({ error: 'No enrollment in progress' });
       }
-      if (!(await verifyTotp(code, user.totp_secret))) {
+      const enrollResult = await verifyTotp(code, user.totp_secret);
+      if (!enrollResult.valid) {
         return reply.code(400).send({ error: 'Invalid code' });
+      }
+      if (!recordTotpStep(user, enrollResult.step)) {
+        return reply.code(400).send({ error: 'Code already used' });
       }
       app.db.prepare('UPDATE users SET totp_enabled = 1 WHERE id = ?').run(user.id);
       await issueSession(reply, user);
@@ -138,9 +150,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (user.locked_until && Date.now() < user.locked_until) {
         return reply.code(423).send({ error: 'Account temporarily locked. Try again later.' });
       }
-      if (!(await verifyTotp(code, user.totp_secret))) {
+      const result = await verifyTotp(code, user.totp_secret);
+      if (!result.valid) {
         registerFailure(user);
         return reply.code(400).send({ error: 'Invalid code' });
+      }
+      if (!recordTotpStep(user, result.step)) {
+        return reply.code(400).send({ error: 'Code already used' });
       }
       clearFailures(user.id);
       await issueSession(reply, user);
@@ -153,9 +169,9 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     const token = req.cookies[REFRESH_COOKIE];
     if (!token) return reply.code(401).send({ error: 'Unauthorized' });
 
-    let claims: { sub: number; scope: string };
+    let claims: { sub: number; scope: string; tv?: number };
     try {
-      claims = app.jwt.verify(token) as { sub: number; scope: string };
+      claims = app.jwt.verify(token) as { sub: number; scope: string; tv?: number };
     } catch {
       return reply.code(401).send({ error: 'Unauthorized' });
     }
@@ -167,16 +183,39 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (user.locked_until && Date.now() < user.locked_until) {
       return reply.code(423).send({ error: 'Account temporarily locked. Try again later.' });
     }
+    // Revocation: a refresh token minted before a logout (token_version bump) is dead.
+    if ((claims.tv ?? 0) !== user.token_version) {
+      return reply.code(401).send({ error: 'Unauthorized' });
+    }
 
-    const access = await reply.jwtSign(
-      { sub: user.id, role: user.role, scope: 'session' },
-      { expiresIn: '15m' },
-    );
-    reply.setCookie(ACCESS_COOKIE, access, accessCookieOpts);
+    // Rotate the refresh token on use (and issue a fresh access), both carrying
+    // the current version — a used/stolen refresh token can't be replayed.
+    await issueSession(reply, user);
     return { ok: true };
   });
 
-  app.post('/api/auth/logout', async (_req, reply) => {
+  app.post('/api/auth/logout', async (req, reply) => {
+    // Revoke every outstanding token for this user by bumping their version.
+    // Identify them from the access cookie, falling back to the refresh cookie
+    // (the access token may already have expired).
+    let sub: number | undefined;
+    try {
+      await req.jwtVerify({ onlyCookie: true });
+      sub = req.user.sub;
+    } catch {
+      const rt = req.cookies[REFRESH_COOKIE];
+      if (rt) {
+        try {
+          const c = app.jwt.verify(rt) as { sub: number; scope: string };
+          if (c.scope === 'refresh') sub = c.sub;
+        } catch {
+          /* no valid token — nothing to revoke */
+        }
+      }
+    }
+    if (sub !== undefined) {
+      app.db.prepare('UPDATE users SET token_version = token_version + 1 WHERE id = ?').run(sub);
+    }
     reply.clearCookie(ACCESS_COOKIE, clearOpts('/'));
     reply.clearCookie(REFRESH_COOKIE, clearOpts('/api/auth'));
     return { ok: true };
@@ -190,7 +229,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     }
     if (req.user.scope !== 'session') return { user: null };
     const user = getUser(req.user.sub);
-    return { user: user ? publicUser(user) : null };
+    if (!user) return { user: null };
+    // Honour session revocation here too, so a logged-out session reads as null.
+    if ((req.user.tv ?? 0) !== user.token_version) return { user: null };
+    return { user: publicUser(user) };
   });
 
   // Issue a CSRF token (double-submit). Safe method → not itself CSRF-guarded.

@@ -20,11 +20,22 @@ export function totpQrDataUrl(uri: string): Promise<string> {
 // still verifies. otplib's epochTolerance is in SECONDS against the default epoch
 // (current time), and 30 resolves to exactly ±1 step — verified empirically:
 // tokens from the −30 s / 0 / +30 s steps pass, ±60 s are rejected.
-export async function verifyTotp(token: string, secret: string): Promise<boolean> {
+//
+// On success returns the matched step (`timeStep` = floor(matchedEpochSec / 30)),
+// which the caller records to reject replays of the same code.
+export async function verifyTotp(
+  token: string,
+  secret: string,
+): Promise<{ valid: true; step: number } | { valid: false }> {
   try {
     const result = await verify({ secret, token, epochTolerance: 30 });
-    return result.valid;
+    if (!result.valid) return { valid: false };
+    // The functional verify() types its result as the TOTP|HOTP union; we only
+    // ever verify TOTP, whose valid result carries `timeStep` (the matched RFC
+    // 6238 step) — the value we persist to reject replays.
+    const { timeStep } = result as { valid: true; timeStep: number };
+    return { valid: true, step: timeStep };
   } catch {
-    return false;
+    return { valid: false };
   }
 }

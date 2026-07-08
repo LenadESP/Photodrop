@@ -12,6 +12,10 @@ export interface AccessClaims {
   sub: number;
   role: Role;
   scope: AccessScope;
+  // Present on session tokens; must match the user's current token_version.
+  // Absent (⇒ treated as 0) on enroll/mfa tokens and on tokens minted before
+  // 1.2.0, which stay valid against the default version 0.
+  tv?: number;
 }
 
 declare module 'fastify' {
@@ -30,7 +34,7 @@ declare module '@fastify/jwt' {
   interface FastifyJWT {
     payload:
       | AccessClaims
-      | { sub: number; scope: 'refresh' }
+      | { sub: number; scope: 'refresh'; tv?: number }
       | { scope: 'album'; uid: string };
     user: AccessClaims;
   }
@@ -58,6 +62,18 @@ export default fp(async function authPlugin(app: FastifyInstance): Promise<void>
     if (req.user.scope !== scope) {
       await reply.code(401).send({ error: 'Unauthorized' });
       return false;
+    }
+    // Session tokens are revocable: their version must still match the user's
+    // current token_version (bumped on logout). enroll/mfa tokens are transient
+    // and carry no version, so this only gates full sessions.
+    if (scope === 'session') {
+      const row = app.db.prepare('SELECT token_version FROM users WHERE id = ?').get(req.user.sub) as
+        | { token_version: number }
+        | undefined;
+      if (!row || (req.user.tv ?? 0) !== row.token_version) {
+        await reply.code(401).send({ error: 'Unauthorized' });
+        return false;
+      }
     }
     return true;
   }

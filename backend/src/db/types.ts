@@ -7,8 +7,10 @@ export interface UserRow {
   role: Role;
   totp_secret: string | null;
   totp_enabled: number;
+  totp_last_step: number | null; // last accepted TOTP step (replay guard)
   failed_login_attempts: number;
   locked_until: number | null;
+  token_version: number; // bumped on logout to revoke outstanding sessions
   created_at: number;
 }
 
