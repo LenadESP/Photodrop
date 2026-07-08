@@ -10,6 +10,7 @@ import securityPlugin from './plugins/security.js';
 import sqlitePlugin from './plugins/sqlite.js';
 import authPlugin from './plugins/auth.js';
 import csrfPlugin from './plugins/csrf.js';
+import maintenancePlugin from './plugins/maintenance.js';
 import thumbnailerPlugin from './plugins/thumbnailer.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
@@ -42,6 +43,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(sqlitePlugin);
   await app.register(authPlugin);
   await app.register(csrfPlugin);
+  await app.register(maintenancePlugin);
   await app.register(thumbnailerPlugin);
   await app.register(fastifyMultipart, {
     limits: {

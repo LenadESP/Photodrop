@@ -51,4 +51,11 @@ export const env = {
   // Refuse uploads when free space on the data volume drops below this floor, so
   // a full disk can't corrupt the SQLite WAL. Default 1 GiB.
   minFreeBytes: intEnv('MIN_FREE_BYTES', 1_073_741_824),
+  // Maintenance / alerting. The data volume is checked hourly; crossing this
+  // usage percentage fires an ntfy alert (default 85%).
+  diskAlertPct: intEnv('DISK_ALERT_PCT', 85),
+  // ntfy destination for proactive alerts. Unset ⇒ alerting is off (the default
+  // for the public distribution); the homelab wires it to the shared topic.
+  ntfyUrl: process.env.NTFY_URL || undefined,
+  ntfyToken: process.env.NTFY_TOKEN || undefined,
 } as const;
