@@ -35,6 +35,9 @@ export const env = {
   nodeEnv,
   isProd,
   port: intEnv('PORT', 3000),
+  // Proxy hops to trust for X-Forwarded-For, so req.ip is the real client behind
+  // the proxy (drives per-IP rate limits). Default 1 = the single Caddy hop.
+  trustProxyHops: intEnv('TRUST_PROXY_HOPS', 1),
   dataDir,
   dbPath: resolve(dataDir, 'data', 'photodrop.db'),
   albumsDir: resolve(dataDir, 'albums'),

@@ -23,9 +23,10 @@ const publicDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
-    // Trust exactly one proxy hop (Caddy on networking_proxy) so req.ip reflects
-    // the real client from X-Forwarded-For. Load-bearing for rate-limit/lockout.
-    trustProxy: 1,
+    // Trust N proxy hops (default 1 = Caddy on networking_proxy) so req.ip
+    // reflects the real client from X-Forwarded-For. Load-bearing for the
+    // per-IP rate limit; configurable via TRUST_PROXY_HOPS.
+    trustProxy: env.trustProxyHops,
     bodyLimit: 1_048_576, // 1 MB for JSON bodies; the upload route raises its own limit
     logger: {
       level: env.isProd ? 'warn' : 'info',
