@@ -15,9 +15,14 @@ const base: CookieSerializeOptions = {
   path: '/',
 };
 
-// Access / enroll / mfa token — all share the access_token cookie; scope in the
-// JWT payload distinguishes the stage. 15 min.
+// Session access token. 15 min — matches its JWT lifetime.
 export const accessCookieOpts: CookieSerializeOptions = { ...base, maxAge: 60 * 15 };
+
+// Intermediate enroll/mfa token: same access_token cookie name, but a scoped,
+// short-lived JWT (10 min). Give the cookie the same maxAge so the two expire
+// together — a cookie that outlives its JWT is dead weight the browser keeps
+// resending until it 401s.
+export const intermediateCookieOpts: CookieSerializeOptions = { ...base, maxAge: 60 * 10 };
 
 // Refresh token, scoped so it is only sent to the auth endpoints. 7 days.
 export const refreshCookieOpts: CookieSerializeOptions = {

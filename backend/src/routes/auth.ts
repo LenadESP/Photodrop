@@ -11,6 +11,7 @@ import {
   accessCookieOpts,
   clearOpts,
   csrfCookieOpts,
+  intermediateCookieOpts,
   refreshCookieOpts,
 } from '../lib/cookies.js';
 import { LoginBody, TotpBody } from '../schemas/auth.js';
@@ -87,7 +88,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         { sub: user.id, role: user.role, scope },
         { expiresIn: '10m' },
       );
-      reply.setCookie(ACCESS_COOKIE, token, accessCookieOpts);
+      reply.setCookie(ACCESS_COOKIE, token, intermediateCookieOpts);
       return { step: scope };
     },
   );
@@ -161,6 +162,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (claims.scope !== 'refresh') return reply.code(401).send({ error: 'Unauthorized' });
     const user = getUser(claims.sub);
     if (!user) return reply.code(401).send({ error: 'Unauthorized' });
+    // A locked-out account can't mint a fresh session through refresh either —
+    // otherwise a held refresh token would sidestep the lockout entirely.
+    if (user.locked_until && Date.now() < user.locked_until) {
+      return reply.code(423).send({ error: 'Account temporarily locked. Try again later.' });
+    }
 
     const access = await reply.jwtSign(
       { sub: user.id, role: user.role, scope: 'session' },
