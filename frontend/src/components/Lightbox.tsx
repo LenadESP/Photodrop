@@ -15,12 +15,14 @@ interface Props {
 }
 
 const navBtn =
-  'absolute top-1/2 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-2xl text-white hover:bg-white/20';
+  'absolute top-1/2 z-10 -translate-y-1/2 flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-2xl text-white hover:bg-white/20';
 const iconBtn =
   'flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-40 disabled:hover:bg-white/10';
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
+// Horizontal travel (px) past which an unzoomed drag counts as a navigation swipe.
+const SWIPE_THRESHOLD = 50;
 
 export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
   const photo = photos[index];
@@ -28,6 +30,11 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const dragStart = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
+  // Swipe-to-navigate is armed only when not zoomed (zoomed → the same gesture pans).
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  // A completed swipe fires a synthetic click; briefly ignore it so it can't also
+  // trigger a nav button that happens to sit under the release point.
+  const suppressClick = useRef(false);
 
   // Reset zoom + pan whenever the photo changes.
   useEffect(() => {
@@ -66,21 +73,46 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
   };
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (zoom <= 1) return;
-    dragStart.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
-    setDragging(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
+    if (zoom > 1) {
+      // Zoomed: the drag pans the image.
+      dragStart.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
+      setDragging(true);
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } else {
+      // Not zoomed: arm a horizontal swipe-to-navigate (resolved on pointer up).
+      swipeStart.current = { x: e.clientX, y: e.clientY };
+    }
   };
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!dragStart.current) return;
+    if (!dragStart.current) return; // only an active pan moves the image
     setOffset({
       x: dragStart.current.ox + (e.clientX - dragStart.current.x),
       y: dragStart.current.oy + (e.clientY - dragStart.current.y),
     });
   };
-  const endDrag = () => {
+  const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (dragStart.current) {
+      dragStart.current = null; // finish a pan
+      setDragging(false);
+      return;
+    }
+    const start = swipeStart.current;
+    swipeStart.current = null;
+    if (!start) return;
+    const dx = e.clientX - start.x;
+    const dy = e.clientY - start.y;
+    // A mostly-horizontal drag past the threshold navigates; clamp at the ends.
+    if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy)) {
+      suppressClick.current = true;
+      window.setTimeout(() => (suppressClick.current = false), 350);
+      if (dx < 0) onIndex(Math.min(index + 1, photos.length - 1));
+      else onIndex(Math.max(index - 1, 0));
+    }
+  };
+  const onPointerCancel = () => {
     dragStart.current = null;
     setDragging(false);
+    swipeStart.current = null;
   };
 
   const zoomed = zoom > 1;
@@ -108,15 +140,25 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
         className="relative flex flex-1 items-center justify-center overflow-hidden px-2"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerLeave={endDrag}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerCancel}
+        onPointerCancel={onPointerCancel}
         style={{
-          touchAction: zoomed ? 'none' : 'auto',
+          // Not zoomed: reserve horizontal gestures for our swipe, leave vertical
+          // (scroll / pull-to-refresh) to the browser. Zoomed: we own all of it.
+          touchAction: zoomed ? 'none' : 'pan-y',
           cursor: zoomed ? (dragging ? 'grabbing' : 'grab') : 'default',
         }}
       >
         {index > 0 && !zoomed && (
-          <button aria-label="Previous" className={`${navBtn} left-3`} onClick={() => onIndex(index - 1)}>
+          <button
+            aria-label="Previous"
+            className={`${navBtn} left-3`}
+            onClick={() => {
+              if (suppressClick.current) return;
+              onIndex(index - 1);
+            }}
+          >
             ‹
           </button>
         )}
@@ -131,7 +173,14 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
           }}
         />
         {index < photos.length - 1 && !zoomed && (
-          <button aria-label="Next" className={`${navBtn} right-3`} onClick={() => onIndex(index + 1)}>
+          <button
+            aria-label="Next"
+            className={`${navBtn} right-3`}
+            onClick={() => {
+              if (suppressClick.current) return;
+              onIndex(index + 1);
+            }}
+          >
             ›
           </button>
         )}
