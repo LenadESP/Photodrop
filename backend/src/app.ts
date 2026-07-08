@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
@@ -67,7 +67,24 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Serve the built SPA (present in the image; typically absent in local dev).
   if (existsSync(publicDir)) {
-    await app.register(fastifyStatic, { root: publicDir, wildcard: false });
+    await app.register(fastifyStatic, {
+      root: publicDir,
+      wildcard: false,
+      // Set Cache-Control per file (below) rather than one blanket value; ETag
+      // + Last-Modified stay on, so revalidating files still get a cheap 304.
+      cacheControl: false,
+      setHeaders: (res, filePath) => {
+        // Vite emits content-hashed files under assets/ (e.g. index-a1b2c3.js):
+        // the bytes for a given name never change, so cache them hard. Everything
+        // else — index.html, favicon — must revalidate or a deploy goes unseen.
+        res.setHeader(
+          'Cache-Control',
+          filePath.includes(`${sep}assets${sep}`)
+            ? 'public, max-age=31536000, immutable'
+            : 'no-cache',
+        );
+      },
+    });
 
     // SPA fallback: non-/api GETs return index.html so client-side routes
     // (/a/:uid, /admin, /login) resolve on a hard refresh.
