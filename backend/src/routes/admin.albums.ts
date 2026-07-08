@@ -14,13 +14,16 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
     (app.db.prepare('SELECT COUNT(*) AS n FROM photos WHERE album_uid = ?').get(uid) as { n: number })
       .n;
 
-  const summary = (a: AlbumRow) => ({
+  // Count is passed in, not fetched here — the list endpoint resolves every
+  // album's count in one grouped query (no N+1); the single-album endpoints
+  // below pass photoCount(uid), which is a single lookup.
+  const summary = (a: AlbumRow, count: number) => ({
     uid: a.uid,
     title: a.title,
     is_public: a.is_public === 1,
     exif_strip: a.exif_strip === 1,
     has_password: a.password_hash !== null,
-    photo_count: photoCount(a.uid),
+    photo_count: count,
     created_at: a.created_at,
     url: `${env.publicOrigin}/a/${a.uid}`,
   });
@@ -36,9 +39,16 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/admin/albums', guard, async (req) => {
     const rows = app.db
-      .prepare('SELECT * FROM albums WHERE owner_id = ? ORDER BY created_at DESC')
-      .all(req.user.sub) as AlbumRow[];
-    return { albums: rows.map(summary) };
+      .prepare(
+        `SELECT a.*, COUNT(p.id) AS photo_count
+           FROM albums a
+           LEFT JOIN photos p ON p.album_uid = a.uid
+          WHERE a.owner_id = ?
+          GROUP BY a.uid
+          ORDER BY a.created_at DESC`,
+      )
+      .all(req.user.sub) as (AlbumRow & { photo_count: number })[];
+    return { albums: rows.map((r) => summary(r, r.photo_count)) };
   });
 
   app.post(
@@ -68,7 +78,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
       mkdirSync(thumbsDir(uid), { recursive: true });
 
       const created = getOwned(uid, req.user.sub)!;
-      return reply.code(201).send({ album: summary(created) });
+      return reply.code(201).send({ album: summary(created, photoCount(uid)) });
     },
   );
 
@@ -99,7 +109,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
         .prepare(`UPDATE albums SET ${sets.join(', ')} WHERE uid = ? AND owner_id = ?`)
         .run(...vals);
 
-      return { album: summary(getOwned(uid, req.user.sub)!) };
+      return { album: summary(getOwned(uid, req.user.sub)!, photoCount(uid)) };
     },
   );
 
@@ -115,7 +125,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
       app.db
         .prepare('UPDATE albums SET password_hash = ? WHERE uid = ? AND owner_id = ?')
         .run(hash, uid, req.user.sub);
-      return { album: summary(getOwned(uid, req.user.sub)!) };
+      return { album: summary(getOwned(uid, req.user.sub)!, photoCount(uid)) };
     },
   );
 
@@ -140,7 +150,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
         if (existsSync(newDir)) renameSync(newDir, oldDir); // roll back the rename
         throw err;
       }
-      return { album: summary(getOwned(newUid, req.user.sub)!) };
+      return { album: summary(getOwned(newUid, req.user.sub)!, photoCount(newUid)) };
     },
   );
 
