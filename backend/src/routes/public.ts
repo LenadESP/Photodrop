@@ -29,6 +29,13 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
       .prepare("SELECT * FROM photos WHERE id = ? AND album_uid = ? AND thumb_status = 'ready'")
       .get(id, uid) as PhotoRow | undefined;
 
+  // Per-route caps on the bulk-byte endpoints (full originals + whole-album zip),
+  // on top of the global 1000/min baseline. Sized so a mobile "save all" burst
+  // (one fetch per photo) still succeeds; thumbnail/display derivatives are small
+  // and stay on the global cap so a gallery grid isn't throttled.
+  const originalLimit = { rateLimit: { max: 300, timeWindow: '1 minute' } };
+  const zipLimit = { rateLimit: { max: 30, timeWindow: '1 minute' } };
+
   // The owning admin (valid session) can always view their own albums — this is
   // what lets the dashboard preview private albums via the same endpoints.
   function isOwnerAdmin(req: FastifyRequest, album: AlbumRow): boolean {
@@ -190,7 +197,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── Full-quality original (inline) ────────────────────────────────────────
-  app.get('/api/a/:uid/photo/:id', { schema: { params: UidPhotoParams } }, async (req, reply) => {
+  app.get('/api/a/:uid/photo/:id', { schema: { params: UidPhotoParams }, config: originalLimit }, async (req, reply) => {
     const { uid, id } = req.params as Static<typeof UidPhotoParams>;
     const album = getAlbum(uid);
     if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
@@ -201,7 +208,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // ── Download one original (attachment) ────────────────────────────────────
-  app.get('/api/a/:uid/download/:id', { schema: { params: UidPhotoParams } }, async (req, reply) => {
+  app.get('/api/a/:uid/download/:id', { schema: { params: UidPhotoParams }, config: originalLimit }, async (req, reply) => {
     const { uid, id } = req.params as Static<typeof UidPhotoParams>;
     const album = getAlbum(uid);
     if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
@@ -218,7 +225,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   // archive. Store (no compression) — the images are already compressed, so
   // deflating them only burns CPU for no size win. Desktop "Download all" uses
   // this; mobile prefers the OS share sheet (individual files → Photos).
-  app.get('/api/a/:uid/zip', { schema: { params: UidParams } }, async (req, reply) => {
+  app.get('/api/a/:uid/zip', { schema: { params: UidParams }, config: zipLimit }, async (req, reply) => {
     const { uid } = req.params as Static<typeof UidParams>;
     const album = getAlbum(uid);
     if (!album) return reply.code(404).send({ error: 'Not found' });
