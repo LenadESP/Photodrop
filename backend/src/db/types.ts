@@ -20,6 +20,7 @@ export interface AlbumRow {
   password_hash: string | null;
   exif_strip: number;
   created_at: number;
+  expires_at: number | null; // epoch ms; NULL = never expires
 }
 
 export type ThumbStatus = 'pending' | 'ready' | 'failed';

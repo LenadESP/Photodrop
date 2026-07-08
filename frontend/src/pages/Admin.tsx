@@ -18,6 +18,7 @@ interface Album {
   has_password: boolean;
   photo_count: number;
   created_at: number;
+  expires_at: number | null;
   url: string;
 }
 interface Photo {
@@ -226,6 +227,21 @@ export function Admin() {
                     action: () => void removeAlbum(selected.uid),
                   })
                 }
+                onSetExpiry={() =>
+                  setPrompt({
+                    title: 'Set link expiry',
+                    label: 'Days until the link expires',
+                    action: (v) => {
+                      const days = Number.parseInt(v, 10);
+                      if (!Number.isFinite(days) || days <= 0) {
+                        notify('Enter a positive number of days', 'error');
+                        return;
+                      }
+                      void patch(selected.uid, { expires_at: Date.now() + days * 86_400_000 });
+                    },
+                  })
+                }
+                onClearExpiry={() => void patch(selected.uid, { expires_at: null })}
               />
 
               <UploadZone
@@ -292,6 +308,8 @@ function AlbumControls(props: {
   onRemovePassword: () => void;
   onRegenerate: () => void;
   onDelete: () => void;
+  onSetExpiry: () => void;
+  onClearExpiry: () => void;
 }) {
   const { album } = props;
   return (
@@ -303,6 +321,9 @@ function AlbumControls(props: {
             <Badge on={album.is_public}>{album.is_public ? 'Public' : 'Private'}</Badge>
             {album.has_password && <Badge on>Password</Badge>}
             <Badge on={album.exif_strip}>{album.exif_strip ? 'EXIF stripped' : 'EXIF kept'}</Badge>
+            {album.expires_at !== null && (
+              <Badge on>Expires {new Date(album.expires_at).toLocaleDateString()}</Badge>
+            )}
           </div>
         </div>
         <Button variant="danger" size="sm" onClick={props.onDelete}>
@@ -339,6 +360,15 @@ function AlbumControls(props: {
         <Button variant="secondary" size="sm" onClick={props.onRegenerate}>
           Regenerate link
         </Button>
+        {album.expires_at !== null ? (
+          <Button variant="secondary" size="sm" onClick={props.onClearExpiry}>
+            Clear expiry
+          </Button>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={props.onSetExpiry}>
+            Set expiry
+          </Button>
+        )}
       </div>
     </div>
   );

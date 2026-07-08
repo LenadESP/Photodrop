@@ -25,6 +25,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
     has_password: a.password_hash !== null,
     photo_count: count,
     created_at: a.created_at,
+    expires_at: a.expires_at,
     url: `${env.publicOrigin}/a/${a.uid}`,
   });
 
@@ -61,8 +62,8 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
 
       app.db
         .prepare(
-          `INSERT INTO albums (uid, owner_id, title, is_public, password_hash, exif_strip, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO albums (uid, owner_id, title, is_public, password_hash, exif_strip, created_at, expires_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           uid,
@@ -72,6 +73,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
           passwordHash,
           body.exif_strip === false ? 0 : 1,
           Date.now(),
+          body.expires_at ?? null,
         );
 
       mkdirSync(originalsDir(uid), { recursive: true });
@@ -91,7 +93,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
       if (!getOwned(uid, req.user.sub)) return reply.code(404).send({ error: 'Not found' });
 
       const sets: string[] = [];
-      const vals: (string | number)[] = [];
+      const vals: (string | number | null)[] = [];
       if (body.title !== undefined) {
         sets.push('title = ?');
         vals.push(body.title);
@@ -103,6 +105,11 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
       if (body.exif_strip !== undefined) {
         sets.push('exif_strip = ?');
         vals.push(body.exif_strip ? 1 : 0);
+      }
+      if (body.expires_at !== undefined) {
+        // null clears expiry (never expires); a number sets the deadline.
+        sets.push('expires_at = ?');
+        vals.push(body.expires_at);
       }
       vals.push(uid, req.user.sub);
       app.db

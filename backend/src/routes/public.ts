@@ -12,8 +12,15 @@ import { UnlockBody } from '../schemas/albums.js';
 import type { AlbumRow, PhotoRow } from '../db/types.js';
 
 export async function publicRoutes(app: FastifyInstance): Promise<void> {
-  const getAlbum = (uid: string): AlbumRow | undefined =>
-    app.db.prepare('SELECT * FROM albums WHERE uid = ?').get(uid) as AlbumRow | undefined;
+  const getAlbum = (uid: string): AlbumRow | undefined => {
+    const album = app.db.prepare('SELECT * FROM albums WHERE uid = ?').get(uid) as
+      | AlbumRow
+      | undefined;
+    // An expired link is dead the instant it expires, even before the maintenance
+    // pass deletes the album — treat it as if it no longer exists.
+    if (album && album.expires_at !== null && album.expires_at <= Date.now()) return undefined;
+    return album;
+  };
 
   // Only 'ready' photos are servable: a 'pending' original hasn't been
   // EXIF-stripped yet, so its bytes must not leave the server.
