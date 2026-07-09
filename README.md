@@ -123,7 +123,7 @@ SQLite database plus photo files on a mounted volume — no external services. S
 
 ## Status
 
-In production, single-operator (currently **v1.2.0**). Runs the author's photo delivery
+In production, single-operator (currently **v1.3.0**). Runs the author's photo delivery
 at `https://photos.lenadesp.org`. It's a one-admin tool by design: one seeded account,
 mandatory TOTP, no self-service user management. The V2 client-portal groundwork
 (user roles, `album_assignments`) is in the schema but not yet wired to routes.
@@ -133,7 +133,6 @@ appear as a background worker finishes each photo (see [CHANGELOG.md](CHANGELOG.
 
 ## Roadmap
 
-- [ ] Download UX (1.3.0) — explicit zip-vs-direct picker, mobile-correct routing
 - [ ] Video support (1.4.0) — uploads, poster-frame thumbnails, capped preview transcode
 - [ ] V2 client portal — per-user album assignments (schema scaffolding already present)
 - [ ] TOTP recovery codes · multi-admin / user management · automated test suite

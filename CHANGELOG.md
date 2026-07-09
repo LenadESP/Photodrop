@@ -2,6 +2,29 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.3.0] — 2026-07-09 — download UX
+
+The download/save flow, made reliable — and always full resolution.
+
+### Fixed
+
+- **Lightbox “Save” now reliably reaches Photos on mobile.** It previously fetched the
+  multi-MB original before invoking the share sheet, which often overran the browser's
+  ~5-second user-activation window, so the share silently failed and fell back to a Files
+  download. The current photo's **full-resolution original** is now prefetched while it's
+  on screen (debounced, cancelled on navigation), so Save fires the share sheet
+  synchronously; if it isn't ready in time it fetches on demand, and the fallback is
+  still the original — never a re-encoded copy.
+
+### Added
+
+- **Explicit download picker on the gallery** — **Save to Photos** (shares the
+  full-resolution originals through the OS share sheet) vs **Download ZIP** (streams the
+  same originals to Files). Both deliver originals; the display derivative is only ever
+  used for on-screen viewing.
+- **Neighbouring lightbox images are preloaded**, so swiping between photos paints
+  instantly instead of loading each one on demand.
+
 > Versions 1.1.3 through 1.2.0 were developed as separate milestones but shipped
 > together in the single **1.2.0** deploy on 2026-07-09; only `v1.2.0` is tagged.
 
@@ -163,6 +186,7 @@ servable).
 - Confirmed TOTP verification tolerates ±1 step (~±30 s) per RFC 6238 §5.2, and the
   per‑album unlock is rate‑limited (10/min) — both verified, no change required.
 
+[1.3.0]: https://github.com/LenadESP/Photodrop/releases/tag/v1.3.0
 [1.2.0]: https://github.com/LenadESP/Photodrop/releases/tag/v1.2.0
 [1.1.2]: https://github.com/LenadESP/Photodrop/releases/tag/v1.1.2
 [1.1.1]: https://github.com/LenadESP/Photodrop/releases/tag/v1.1.1

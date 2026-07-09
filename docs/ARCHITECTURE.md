@@ -255,8 +255,9 @@ is immutable. Thumbnails of **public** albums are sent `Cache-Control: public, m
 immutable` + an `ETag` (`If-None-Match` → 304), so the browser and a CDN edge can cache
 them and repeat views skip the origin. Private/password-album thumbnails and all
 full-size originals stay `private` — never shared-cached, or the URL alone would bypass
-the access gate. (Edge caching at Cloudflare additionally needs a cache rule for
-`/api/a/*/thumb/*` — infra outside this repo; the app's part is the headers.)
+the access gate. (Edge caching of public thumbnails is completed by a Cloudflare cache
+rule for `/api/a/*/thumb/*`, configured in the dashboard — infra outside this repo; the
+app's part is the headers.)
 
 ## Design decisions & gotchas
 
