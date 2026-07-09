@@ -12,6 +12,22 @@ full-resolution save; 1.3.1 — phone "download all" as direct per-file download
 
 Notation: `x.Y.0` = features, `x.x.Y` = fixes/polish.
 
+## 1.3.2 — security-doc corrections + small hardening (next)
+From the v1.3.1 full-codebase audit — no high/critical issues; low-severity corrections
+and defensive polish.
+- **Fix two overstated SECURITY.md claims** (the audit's main output):
+  - Refresh tokens: rotation issues a new token but does **not** invalidate the old one —
+    version-based revocation only clears outstanding tokens on logout/expiry, so a stolen
+    refresh token stays valid up to its 7-day life. Reword the "can't be replayed" line to
+    match what's enforced.
+  - Enumeration: a locked account returns 423 vs 401 for an unknown username — a mild
+    existence oracle. Reword "no existence oracle", or return a generic 401 when locked.
+- **Optional small hardening (low-risk):** pin the JWT verifier to `HS256` explicitly
+  (already effectively HS-only — defence in depth); minimum-length check on the secrets in
+  `env.ts`, on top of the `CHANGE_ME` guard.
+- Deeper follow-ups the audit flagged (per-token refresh reuse detection; a softer lockout
+  so the sole admin can't be locked out) are larger and left unscheduled for now.
+
 ## 1.4.0 — video support
 - Accept video uploads; poster-frame thumbnails.
 - Bitrate-capped preview transcode on the existing async job worker — one-time at upload, never on-the-fly on this CPU. Direct-play small/compatible files.
