@@ -1,5 +1,5 @@
-// Mobile "Save to Photos" via the Web Share API (files), with a plain download
-// fallback for browsers/desktops that can't share files.
+// Photo delivery helpers: the single-photo "Save to Photos" via the Web Share API
+// (files), and the bulk "Download all" as direct per-file browser downloads.
 
 export function canShareFiles(): boolean {
   return (
@@ -48,22 +48,45 @@ export interface DownloadItem {
   name: string;
 }
 
-// Save many photos at once via the OS share sheet (one action → "Save N Images"
-// straight into Photos). Returns false if the platform can't share multiple
-// files, so the caller can fall back to individual downloads.
-export async function shareFiles(items: DownloadItem[]): Promise<boolean> {
-  if (!canShareFiles() || items.length === 0) return false;
-  try {
-    const files = await Promise.all(items.map((i) => fetchAsFile(i.url, i.name)));
-    return await shareLoadedFiles(files);
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') return true;
-    return false;
+// Bulk "Download all": trigger a direct browser download of every full-resolution
+// original in sequence — one hidden <a download> click per photo. Each click
+// streams straight to disk, so nothing is buffered in JS. (The old share-sheet
+// path fetched every original into memory at once and hung on a real album.)
+// These URLs always point at /download, i.e. the full-res original — never a
+// derivative or re-encode.
+//
+// The first file fires, then a longer pause before the rest: the browser shows a
+// one-time "allow multiple downloads" prompt on the second file, and downloads
+// fired while that prompt is still open can be dropped rather than queued. The gap
+// gives the grant time to land so no photo goes missing on the first run.
+//
+// Note: an <a> click has no completion event, so `onProgress` reports downloads
+// *started*, not finished — the count can reach the total while the browser is
+// still writing files to disk.
+export async function downloadOriginalsSequential(
+  items: DownloadItem[],
+  opts: {
+    staggerMs?: number;
+    firstGapMs?: number;
+    onProgress?: (started: number, total: number) => void;
+    signal?: AbortSignal;
+  } = {},
+): Promise<void> {
+  const { staggerMs = 500, firstGapMs = 1800, onProgress, signal } = opts;
+  const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  let started = 0;
+  for (const item of items) {
+    if (signal?.aborted) return;
+    downloadUrl(item.url, item.name);
+    started += 1;
+    onProgress?.(started, items.length);
+    if (started === items.length) break;
+    await delay(started === 1 ? firstGapMs : staggerMs);
   }
 }
 
-// Desktop "Download all": a single streamed zip from the server (the browser
-// saves it via the response's Content-Disposition). One file, no per-file prompts.
+// "Download ZIP": a single streamed zip from the server (the browser saves it via
+// the response's Content-Disposition). One file, no per-file prompts.
 export function downloadAlbumZip(uid: string): void {
   downloadUrl(`/api/a/${uid}/zip`);
 }

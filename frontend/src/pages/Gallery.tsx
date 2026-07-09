@@ -7,7 +7,7 @@ import { FullPageSpinner } from '../components/Spinner';
 import { Lightbox } from '../components/Lightbox';
 import { ThemeToggle } from '../components/ThemeToggle';
 import { Spinner } from '../components/Spinner';
-import { canShareFiles, downloadAlbumZip, shareFiles } from '../lib/share';
+import { downloadAlbumZip, downloadOriginalsSequential, type DownloadItem } from '../lib/share';
 
 interface Photo {
   id: number;
@@ -31,7 +31,7 @@ export function Gallery() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [lightbox, setLightbox] = useState<number | null>(null);
-  const [downloadingAll, setDownloadingAll] = useState(false);
+  const [dlProgress, setDlProgress] = useState<{ started: number; total: number } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -116,20 +116,24 @@ export function Gallery() {
   const readyPhotos = photos.filter((p) => p.ready);
   const pendingCount = photos.length - readyPhotos.length;
 
-  // Explicit picker: "Save to Photos" shares the full-resolution originals through
-  // the OS share sheet (one action → "Save N Images" into Photos); "Download ZIP"
-  // streams the same originals as a single archive (lands in Files/Downloads). Both
-  // deliver originals — the display derivative is only ever used for on-screen viewing.
-  const shareOriginals = canShareFiles();
-  const saveAllToPhotos = async () => {
-    if (readyPhotos.length === 0 || downloadingAll) return;
-    setDownloadingAll(true);
+  // Two ways to grab the whole album, both full-resolution originals: "Download all"
+  // saves every original straight to the device as individual browser downloads (on
+  // a phone they land in Downloads/Files and surface in the gallery); "Download ZIP"
+  // streams the same originals as a single archive. The display derivative is only
+  // ever used for on-screen viewing, never for saving.
+  const downloadAll = async () => {
+    if (readyPhotos.length === 0 || dlProgress) return;
+    const items: DownloadItem[] = readyPhotos.map((p) => ({
+      url: `/api/a/${uid}/download/${p.id}`,
+      name: p.name,
+    }));
+    setDlProgress({ started: 0, total: items.length });
     try {
-      const items = readyPhotos.map((p) => ({ url: `/api/a/${uid}/download/${p.id}`, name: p.name }));
-      if (await shareFiles(items)) return;
-      downloadAlbumZip(uid); // share unavailable or declined → fall back to the zip
+      await downloadOriginalsSequential(items, {
+        onProgress: (started, total) => setDlProgress({ started, total }),
+      });
     } finally {
-      setDownloadingAll(false);
+      setDlProgress(null);
     }
   };
 
@@ -144,20 +148,30 @@ export function Gallery() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {readyPhotos.length > 0 && shareOriginals && (
-            <Button variant="secondary" size="sm" onClick={() => void saveAllToPhotos()} disabled={downloadingAll}>
-              {downloadingAll ? <Spinner className="h-4 w-4" /> : null}
-              {downloadingAll ? 'Saving…' : 'Save to Photos'}
+          {readyPhotos.length > 0 && (
+            <Button variant="secondary" size="sm" onClick={() => void downloadAll()} disabled={!!dlProgress}>
+              {dlProgress ? <Spinner className="h-4 w-4" /> : null}
+              {dlProgress
+                ? dlProgress.started === 0
+                  ? 'Starting…'
+                  : `Downloading ${dlProgress.started} / ${dlProgress.total}…`
+                : 'Download all'}
             </Button>
           )}
           {readyPhotos.length > 0 && (
-            <Button variant="secondary" size="sm" onClick={() => downloadAlbumZip(uid)}>
+            <Button variant="secondary" size="sm" onClick={() => downloadAlbumZip(uid)} disabled={!!dlProgress}>
               Download ZIP
             </Button>
           )}
           <ThemeToggle />
         </div>
       </header>
+
+      {dlProgress && (
+        <p className="px-4 pb-1 text-xs text-muted sm:px-6">
+          Your browser may ask to allow multiple downloads — tap Allow to save them all.
+        </p>
+      )}
 
       {photos.length === 0 ? (
         <p className="px-6 py-16 text-center text-muted">This album is empty.</p>
