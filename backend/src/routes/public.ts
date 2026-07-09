@@ -43,7 +43,13 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     if (!token) return false;
     try {
       const p = app.jwt.verify(token) as AccessClaims;
-      return p.scope === 'session' && p.role === 'admin' && p.sub === album.owner_id;
+      if (p.scope !== 'session' || p.role !== 'admin' || p.sub !== album.owner_id) return false;
+      // Honour session revocation here too: a logged-out admin's old token must not
+      // keep previewing private albums (token_version is bumped on logout).
+      const row = app.db.prepare('SELECT token_version FROM users WHERE id = ?').get(p.sub) as
+        | { token_version: number }
+        | undefined;
+      return !!row && (p.tv ?? 0) === row.token_version;
     } catch {
       return false;
     }
