@@ -75,6 +75,10 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
   useEffect(() => {
     const p = photos[index];
     if (!p || !canShareFiles() || originalRef.current?.id === p.id) return;
+    // Respect Data Saver — don't background-download full originals on a metered link;
+    // Save still works there, it just fetches on demand.
+    const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
+    if (conn?.saveData) return;
     const controller = new AbortController();
     const t = window.setTimeout(async () => {
       try {
