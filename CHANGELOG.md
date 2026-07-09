@@ -2,6 +2,32 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.3.1] — 2026-07-09 — phone "download all"
+
+Bulk "download all" on a phone now saves the full-resolution originals straight to the
+device instead of routing them through the share sheet.
+
+### Fixed
+
+- **Gallery "download all" no longer hangs on a real album.** The mobile "Save to Photos"
+  button fetched *every* full-resolution original into memory before invoking the share
+  sheet, which stalled on a large album (≈33 photos / ~120 MB). It is replaced by
+  **Download all**, which triggers a direct browser download of each full-resolution
+  original in sequence — every `<a download>` click streams straight to disk, so nothing
+  is buffered in JS. On Android the files land in Downloads and surface in the gallery;
+  on iOS they land in Files. Full resolution only, always — never the display derivative
+  or a re-encode.
+
+### Changed
+
+- **Both "Download all" and "Download ZIP" now appear on every device.** The gallery
+  header offers the per-file direct download and the streamed archive side by side, on
+  phone and desktop alike. The direct download fires the first file, then paces the rest
+  (a longer initial gap lets the browser's one-time "allow multiple downloads" grant land
+  so no photo is dropped), and a progress indicator counts them as they start.
+- The single-photo lightbox **Save** is unchanged — it still shares the full-resolution
+  original to Photos on mobile.
+
 ## [1.3.0] — 2026-07-09 — download UX
 
 The download/save flow, made reliable — and always full resolution.
