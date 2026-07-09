@@ -18,6 +18,9 @@ runs on untrusted image bytes).
   scoped token — never a session. A session is granted only after TOTP activation
   (first login) or verification (returning login). See `routes/auth.ts`,
   `lib/totp.ts` (otplib, ±30 s / ±1-step skew tolerance, per RFC 6238 §5.2).
+- **TOTP replay protection.** The matched RFC 6238 time-step of each accepted code is
+  recorded per user (`users.totp_last_step`); a code whose step was already used is
+  rejected, so a captured code can't be replayed inside its ±1-step window.
 - **Password hashing.** argon2id with OWASP-baseline parameters
   (`memoryCost 19456 KiB, timeCost 2, parallelism 1`). See `lib/hash.ts`.
 - **Argon2 verified before bytes are served.** Album passwords are checked with
@@ -27,10 +30,13 @@ runs on untrusted image bytes).
   or password-less album still burns an argon2 verify and returns an identical
   response — no timing or existence oracle.
 - **Rate limiting.** Global baseline 1000 req/min; auth and unlock routes clamp to
-  10/min, refresh to 30/min (`plugins/security.ts`, per-route `config.rateLimit`).
-  `trustProxy: 1` makes `req.ip` the real client IP behind exactly one proxy hop.
-- **Account lockout.** 5 failed attempts → a 5-minute lock (HTTP 423), applied to both
-  the password and the TOTP step (`routes/auth.ts`).
+  10/min, refresh to 30/min, and the bulk-byte endpoints to 30/min (`/zip`) and 300/min
+  (full originals) (`plugins/security.ts`, per-route `config.rateLimit`). The proxy-trust
+  depth that makes `req.ip` the real client IP is configurable via `TRUST_PROXY_HOPS`
+  (default 1 — the single Caddy hop).
+- **Account lockout.** 5 failed attempts → a 5-minute lock (HTTP 423), applied to the
+  password step, the TOTP step, and `/api/auth/refresh` — a held refresh token can't mint
+  a session while the account is locked (`routes/auth.ts`).
 
 ## Session & cookies
 
@@ -40,7 +46,12 @@ runs on untrusted image bytes).
   `album`) plus short lifetimes keep the stages isolated — a token for one stage cannot
   satisfy another's guard (`plugins/auth.ts`).
 - Lifetimes: session 15 min, refresh 7 days (scoped to `/api/auth`), album unlock 2 h.
+  The enroll/mfa intermediate cookie expires with its 10-minute JWT.
 - The refresh cookie is path-scoped to `/api/auth` so it isn't sent on every request.
+- **Revocable sessions.** Session and refresh tokens carry a `token_version` checked
+  against the user row on every session guard, `/api/auth/me`, and refresh. Logout bumps
+  the version — invalidating every outstanding token at once — and refresh rotates the
+  refresh token on use (`users.token_version`, `routes/auth.ts`, `plugins/auth.ts`).
 
 ## CSRF
 
@@ -100,9 +111,11 @@ From `compose.yaml`:
 
 Honest about what V1 does **not** do:
 
-- **Single admin, no recovery codes.** One seeded account. Losing the TOTP seed locks
-  you out — recovery means editing `users.totp_enabled` / `totp_secret` in the SQLite
-  DB by hand. No self-service reset, no backup codes.
+- **Single admin, no recovery codes.** One seeded account, no backup codes. A lost TOTP
+  seed is recovered with the `reset-totp` CLI (`docker exec … node
+  dist/scripts/reset-totp.js <username>`), which clears the enrolment so the next login
+  re-enrols — an operator action on the box, not self-service. Real backup codes ride the
+  2.0 rework.
 - **No user management.** The `user` role and `album_assignments` table exist in the
   schema for the planned V2 client portal but are not wired to any route yet.
 - **No audit log** of admin actions or gallery access beyond the reverse proxy's logs.

@@ -35,7 +35,7 @@ backend/
       index.ts             opens better-sqlite3 (WAL)
       migrate.ts           file-based migration runner (_migrations table)
       bootstrap.ts         seeds the single admin on first boot
-      migrations/*.sql     001 init schema, 002 thumb_status (async pipeline)
+      migrations/*.sql     001 init, 002 thumb_status, 003 album expiry, 004 auth hardening
       types.ts             row types
     lib/
       cookies.ts           cookie names + serialize options per token type
@@ -47,22 +47,25 @@ backend/
       images.ts            magic-byte sniff + sharp decode/thumbnail gate
       exif.ts              exiftool-vendored lossless metadata strip
       mime.ts              ext→mime, Content-Disposition sanitizer
-      disk.ts              free-space probe for the disk-full upload guard
+      disk.ts              free-space probe + usage% for the disk guard / alert
+      notify.ts            best-effort ntfy push (disk alert)
     plugins/
       security.ts          helmet + global rate limit
       sqlite.ts            db decorator, runs migrations + admin seed
-      auth.ts              @fastify/cookie + @fastify/jwt, scope guards
+      auth.ts              @fastify/cookie + @fastify/jwt, scope + token_version guards
       csrf.ts              global double-submit CSRF hook
+      maintenance.ts       boot orphan sweep + hourly expiry deletion + disk alert
       thumbnailer.ts       background worker: full decode + thumb/display + EXIF strip
     routes/
       health.ts            GET /api/health
       auth.ts              login, TOTP enroll/verify, refresh, logout, csrf, config
-      admin.albums.ts      album CRUD, password, regenerate-uid
+      admin.albums.ts      album CRUD, password, expiry, regenerate-uid
       admin.upload.ts      photo upload + delete
-      public.ts            album view, unlock, thumb/photo/download bytes
+      public.ts            album view, unlock, thumb/photo/download bytes (rate-capped)
     schemas/               TypeBox request schemas (auth, albums, common)
     scripts/
-      backfill-display.ts  maintenance: (re)generate display derivatives (run via docker exec)
+      backfill-display.ts  (re)generate display derivatives (run via docker exec)
+      reset-totp.ts        clear a user's TOTP enrolment for recovery (run via docker exec)
 frontend/
   src/
     pages/                 Home, Login, Gallery, Admin
@@ -102,10 +105,12 @@ SQLite, WAL mode, migrations applied at startup (`migrate.ts` tracks applied fil
 a `_migrations` table). Schema in `migrations/001_init.sql`:
 
 - **users** — `id`, `username` (unique), `password_hash` (argon2id), `role`
-  (`admin`|`user`), `totp_secret`, `totp_enabled`, `failed_login_attempts`,
-  `locked_until`, `created_at`.
+  (`admin`|`user`), `totp_secret`, `totp_enabled`, `totp_last_step` (replay guard, mig
+  `004`), `failed_login_attempts`, `locked_until`, `token_version` (session revocation,
+  mig `004`), `created_at`.
 - **albums** — `uid` (PK, nanoid-14), `owner_id` → users, `title`, `is_public`,
-  `password_hash` (nullable argon2id), `exif_strip` (default 1), `created_at`.
+  `password_hash` (nullable argon2id), `exif_strip` (default 1), `expires_at` (nullable —
+  link expiry, migration `003`), `created_at`.
 - **photos** — `id`, `album_uid` → albums (`ON UPDATE CASCADE ON DELETE CASCADE`),
   `stored_filename` (random), `original_name`, `thumb_path`, `width`, `height`,
   `bytes`, `thumb_status` (`pending`|`ready`|`failed`, migration `002`), `created_at`.
@@ -126,17 +131,23 @@ Plugin registration order in `app.ts` is load-bearing:
 3. **auth** — registers `@fastify/cookie` and `@fastify/jwt` (reads the JWT from the
    `access_token` cookie), decorates the scope guards.
 4. **csrf** — global `onRequest` hook enforcing double-submit on unsafe methods.
-5. **thumbnailer** — the background thumbnail worker; decorates `app.kickThumbnailer`
+5. **maintenance** — boot-time storage reconciliation (clears `tmp/`, drops rows whose
+   original is gone, deletes files no row references) and an expiry sweep, then an hourly
+   timer for expired-album deletion and the disk-usage alert. Registered before the
+   thumbnailer so reconciliation completes before the drain starts.
+6. **thumbnailer** — the background thumbnail worker; decorates `app.kickThumbnailer`
    and drains any `pending` photos on `onReady` (boot reconciliation).
-6. **multipart** — field/file limits for uploads.
-7. **routes** — registered last so the CSRF guard covers all of them.
-8. **static SPA** — if `../public` exists (it does in the image), serves it with a
-   non-`/api` GET fallback to `index.html` for client-side routing.
+7. **multipart** — field/file limits for uploads.
+8. **routes** — registered last so the CSRF guard covers all of them.
+9. **static SPA** — if `../public` exists (it does in the image), serves it with a
+   non-`/api` GET fallback to `index.html` for client-side routing. Hashed `assets/*` are
+   served `immutable`; `index.html` stays `no-cache`.
 
-`trustProxy: 1` — the app trusts exactly one proxy hop so `req.ip` reflects the real
-client from `X-Forwarded-For`. This is load-bearing for rate limiting and lockout;
-it assumes exactly one trusted proxy in front (Caddy). The JSON `bodyLimit` is 1 MB;
-the upload route raises its own file-size limit via multipart config.
+`trustProxy` (default 1, override with `TRUST_PROXY_HOPS`) — the app trusts N proxy hops
+so `req.ip` reflects the real client from `X-Forwarded-For`. This is load-bearing for the
+per-IP rate limit; the default assumes exactly one trusted proxy in front (Caddy). The
+JSON `bodyLimit` is 1 MB; the upload route raises its own file-size limit via multipart
+config.
 
 ### Auth token scopes
 
@@ -154,14 +165,22 @@ token minted for one stage can never satisfy another's guard.
 Cookies are `httpOnly` + `SameSite=Strict` + `Secure` (in production). The CSRF cookie
 is the exception — it's deliberately readable by JS (double-submit) and lives 8 hours.
 
+Session and refresh tokens additionally carry a `token_version` (`tv`) claim, matched
+against `users.token_version` on every session guard, `/api/auth/me`, and refresh.
+Logout increments the row's version, so every previously issued token — access and
+refresh — is invalidated at once. Tokens issued before 1.2.0 carry no `tv` (read as 0)
+and stay valid until the first bump, so the upgrade doesn't drop the live session.
+
 ### Login flow
 
 1. `POST /api/auth/login` — username + password. On success, issues an `enroll` token
    (if TOTP not yet enabled) or an `mfa` token. Password alone never yields a session.
 2. First login: `POST /api/auth/totp/enroll` returns a secret + QR data URL;
    `POST /api/auth/totp/activate` verifies a code, sets `totp_enabled`, issues a session.
-3. Returning login: `POST /api/auth/totp/verify` checks the code and issues a session.
-4. `POST /api/auth/refresh` swaps a valid refresh token for a fresh session token.
+3. Returning login: `POST /api/auth/totp/verify` checks the code — rejecting a replayed
+   step (`totp_last_step`) — and issues a session.
+4. `POST /api/auth/refresh` verifies the refresh token and its `token_version`, rotates
+   it, and issues a fresh session token; a locked-out account is refused here too.
 
 ## Upload pipeline
 
@@ -217,9 +236,14 @@ backend's per-request cap.
 
 Endpoints: `/thumb/:id` (grid), `/display/:id` (lightbox — the ~1920px derivative, or
 the original as a fallback for photos that predate it), `/photo/:id` (full original,
-inline), `/download/:id` (full original, attachment). The lightbox uses `/display` so a
-viewer paints the screen from a ~1920px image instead of a full 24 MP original; the
-original is only fetched on download.
+inline), `/download/:id` (full original, attachment), `/zip` (whole album, streamed).
+The lightbox uses `/display` so a viewer paints the screen from a ~1920px image instead
+of a full 24 MP original; the original is only fetched on download. The bulk-byte
+endpoints carry per-route rate caps (`/zip` 30/min, full originals 300/min) on top of
+the global baseline; thumbnails/display stay on the global cap.
+
+An album past its `expires_at` is treated as absent — every public endpoint 404s
+immediately, even before the hourly maintenance pass deletes the row and files.
 
 The unlock route burns a comparable argon2 verify even when the album is missing or has
 no password, and returns an identical response, so it's not an existence oracle.

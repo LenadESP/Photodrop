@@ -123,8 +123,9 @@ reached at `apps-photodrop:3000`; the proxy terminates TLS.
    ```
 
 4. Point your proxy at the container and set `PUBLIC_ORIGIN` in `.env` to the public URL.
-   The app trusts exactly one proxy hop (`trustProxy: 1`), so `X-Forwarded-For` gives it
-   the real client IP — make sure your proxy sets it. Example Caddy site block:
+   The app trusts one proxy hop by default (`TRUST_PROXY_HOPS=1`), so `X-Forwarded-For`
+   gives it the real client IP — make sure your proxy sets it; raise the value if you
+   stack another trusted proxy in front. Example Caddy site block:
 
    ```
    photos.example.org {
@@ -142,9 +143,15 @@ base + override configuration.
 
 Open `PUBLIC_ORIGIN` and log in with the seeded admin credentials. You'll be forced to
 enroll TOTP (scan the QR with an authenticator app, confirm a code) before a session is
-issued. **Save the TOTP seed** — V1 has no recovery codes.
+issued. **Save the TOTP seed** — V1 has no backup codes.
 
 The admin is seeded on first boot only, when the users table is empty.
+
+**Lost your TOTP device?** Clear the enrolment from the box so the next login re-enrols:
+
+```bash
+docker exec apps-photodrop node dist/scripts/reset-totp.js <username>
+```
 
 ## Upgrades
 

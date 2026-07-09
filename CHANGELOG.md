@@ -2,6 +2,79 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+> Versions 1.1.3 through 1.2.0 were developed as separate milestones but shipped
+> together in the single **1.2.0** deploy on 2026-07-09; only `v1.2.0` is tagged.
+
+## [1.2.0] — 2026-07-09 — hardening
+
+Defence-in-depth from the v1.1.1 audit. Migrations `003`–`004` run automatically on
+upgrade; every new column defaults so existing albums — and the live admin session —
+are unaffected.
+
+### Added
+
+- **TOTP replay protection.** A one-time code can no longer be reused within its
+  validity window: the matched RFC‑6238 step is recorded per user, and a code whose step
+  was already accepted is rejected (`users.totp_last_step`, migration `004`).
+- **Session revocation.** Session and refresh tokens carry a `token_version`
+  (`users.token_version`, migration `004`) checked on every session guard, `/api/auth/me`,
+  and refresh. Logout bumps the version — immediately invalidating every outstanding
+  token — and refresh now rotates the refresh token on use.
+- **Configurable proxy-trust depth.** `TRUST_PROXY_HOPS` (default `1`) sets how many
+  proxy hops to trust for `X-Forwarded-For` so the real client IP drives the per-IP rate
+  limit. The default preserves the previous hard-coded single-hop behaviour.
+- **Per-route rate caps on the bulk-byte endpoints.** Whole-album `/zip` at 30/min and
+  full originals (`/photo`, `/download`) at 300/min, on top of the global baseline;
+  thumbnails and display derivatives stay on the global cap so a gallery grid is never
+  throttled.
+
+## [1.1.5] — 2026-07-09 — reliability & lifecycle
+
+### Added
+
+- **Album link expiry.** An album can be given an expiry (`albums.expires_at`, migration
+  `003`; nullable, `NULL` = never). Past expiry the link 404s immediately, and an hourly
+  maintenance pass permanently deletes the album — DB row plus on-disk files. Set or
+  clear it from the dashboard.
+- **Boot-time orphan sweep.** On start-up the app clears the upload staging dir and
+  reconciles DB rows against on-disk files (drops rows whose original is missing, deletes
+  files no row references), cleaning up after an interrupted upload or crash.
+- **Proactive disk alert.** The data volume is checked hourly; crossing `DISK_ALERT_PCT`
+  (default 85%) pushes one throttled ntfy alert (`NTFY_URL`; alerting is off when unset).
+- **TOTP-reset recovery CLI.** `dist/scripts/reset-totp.js <username>` clears a user's
+  TOTP enrolment and lifts any lockout so their next login re-enrols — recovery without
+  hand-editing the database.
+
+## [1.1.4] — 2026-07-09 — mobile & gallery
+
+### Fixed
+
+- **Lightbox “previous” button on touch.** It now sits above the image (z-index), so it
+  is reliably tappable on mobile.
+
+### Added
+
+- **Swipe to navigate the lightbox.** When not zoomed, a horizontal swipe moves between
+  photos without fighting the zoom-pan gesture (vertical gestures stay with the browser).
+
+## [1.1.3] — 2026-07-09 — polish
+
+Correctness and efficiency from the 2026-07-07 audit; nothing user-visible.
+
+### Changed
+
+- Content-hashed SPA assets under `assets/` are served `public, max-age=1y, immutable`,
+  while `index.html` stays `no-cache` so a deploy is always picked up.
+
+### Fixed
+
+- **Album-list N+1.** The dashboard resolves every album's photo count in one grouped
+  query instead of a `COUNT` per album.
+- **Intermediate-token cookie lifetime.** The enroll/mfa cookie now expires with its
+  10‑minute JWT instead of lingering to 15.
+- **Refresh honours lockout.** `/api/auth/refresh` refuses to mint a session for a
+  locked-out account, so a held refresh token can't sidestep the lockout.
+
 ## [1.1.2] — 2026-07-07 — audit cleanups
 
 The two hygiene items from the v1.1.1 security audit. No API or schema changes.
@@ -90,6 +163,7 @@ servable).
 - Confirmed TOTP verification tolerates ±1 step (~±30 s) per RFC 6238 §5.2, and the
   per‑album unlock is rate‑limited (10/min) — both verified, no change required.
 
+[1.2.0]: https://github.com/LenadESP/Photodrop/releases/tag/v1.2.0
 [1.1.2]: https://github.com/LenadESP/Photodrop/releases/tag/v1.1.2
 [1.1.1]: https://github.com/LenadESP/Photodrop/releases/tag/v1.1.1
 [1.1.0]: https://github.com/LenadESP/Photodrop/releases/tag/v1.1.0

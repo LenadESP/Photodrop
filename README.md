@@ -28,9 +28,13 @@ Put the file at docs/media/demo.gif and reference it as:
   default, per-album toggle.
 - **Dark mode** — follows the OS preference, with a persisted manual toggle.
 - **Admin dashboard** — create / rename / toggle public / set-remove password /
-  regenerate link / toggle EXIF / delete albums, plus drag-drop upload.
-- **Hardened auth** — mandatory TOTP, httpOnly+SameSite JWT cookies, CSRF double-submit,
-  rate limiting, and account lockout.
+  regenerate link / set-clear link expiry / toggle EXIF / delete albums, plus drag-drop
+  upload.
+- **Link expiry** — give an album a deadline; past it the link 404s and the album is
+  permanently deleted (row + files) by a background maintenance pass.
+- **Hardened auth** — mandatory TOTP with replay protection, httpOnly+SameSite JWT
+  cookies, CSRF double-submit, rate limiting, account lockout, and session revocation
+  (token-version bump on logout).
 
 ## Quickstart (Docker)
 
@@ -91,6 +95,9 @@ Essential variables (from [`.env.example`](.env.example)):
 | `MAX_FILES_PER_UPLOAD` | no       | `40`                 | Per-request file count cap (the frontend chunks larger drops).         |
 | `MAX_IMAGE_PIXELS`     | no       | `50000000` (50 MP)   | Decode cap — a decompression-bomb guard.                               |
 | `MIN_FREE_BYTES`       | no       | `1073741824` (1 GiB) | Refuse uploads below this free space (protects the SQLite WAL).        |
+| `TRUST_PROXY_HOPS`     | no       | `1`                  | Proxy hops to trust for `X-Forwarded-For` (real client IP → rate limit). |
+| `DISK_ALERT_PCT`       | no       | `85`                 | Data-volume usage % that triggers the hourly ntfy disk alert.          |
+| `NTFY_URL`             | no       | —                    | ntfy topic URL for alerts. Unset ⇒ alerting off. Optional `NTFY_TOKEN`. |
 
 The startup guard refuses to boot in production if any secret still holds a
 `CHANGE_ME` placeholder.
@@ -116,7 +123,7 @@ SQLite database plus photo files on a mounted volume — no external services. S
 
 ## Status
 
-In production, single-operator (currently **v1.1.2**). Runs the author's photo delivery
+In production, single-operator (currently **v1.2.0**). Runs the author's photo delivery
 at `https://photos.lenadesp.org`. It's a one-admin tool by design: one seeded account,
 mandatory TOTP, no self-service user management. The V2 client-portal groundwork
 (user roles, `album_assignments`) is in the schema but not yet wired to routes.
@@ -126,8 +133,8 @@ appear as a background worker finishes each photo (see [CHANGELOG.md](CHANGELOG.
 
 ## Roadmap
 
-- [ ] Link expiry that deletes files
-- [ ] Session revocation (refresh rotation + server-side invalidation)
+- [ ] Download UX (1.3.0) — explicit zip-vs-direct picker, mobile-correct routing
+- [ ] Video support (1.4.0) — uploads, poster-frame thumbnails, capped preview transcode
 - [ ] V2 client portal — per-user album assignments (schema scaffolding already present)
 - [ ] TOTP recovery codes · multi-admin / user management · automated test suite
 

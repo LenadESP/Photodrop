@@ -4,36 +4,14 @@ Direction, not a commitment. Single-maintainer project; items land when they lan
 The V1 schema was deliberately shaped so the big multi-tenant item stays additive.
 
 Shipped items live in [CHANGELOG.md](https://github.com/LenadESP/Photodrop/blob/main/CHANGELOG.md).
-The 1.1.0 reliability tranche (async thumbnail worker, disk-full guard, DB/FS health
-check) is shipped.
+Everything through **1.2.0** is shipped: reliability & delivery (1.1.0), the polish /
+mobile / lifecycle line (1.1.3–1.1.5), and the security-hardening tranche (1.2.0 —
+configurable proxy-trust, bulk-endpoint rate caps, TOTP replay protection, session
+revocation).
 
 Notation: `x.Y.0` = features, `x.x.Y` = fixes/polish.
 
-## 1.1.3 — polish (next)
-Correctness/efficiency from the 2026-07-07 audit. None user-visible.
-- Fold per-album photo COUNT into the album-list query (kill the N+1).
-- Long-cache hashed SPA assets (`assets/*` immutable; `index.html` keeps revalidating).
-- Match the intermediate-token cookie lifetime to its 10-min JWT.
-- `/api/auth/refresh` must honour account lockout before issuing a session.
-
-## 1.1.4 — mobile & gallery fixes
-- Fix the lightbox prev button on touch (dead on mobile today).
-- Swipe left/right to navigate the lightbox on mobile (must not fight the zoom-pan handlers).
-
-## 1.1.5 — reliability & lifecycle
-- Boot-time orphan sweep: clear `tmp/` and reconcile DB rows ↔ on-disk files after an interrupted upload.
-- Link expiry actually deletes: `rm -rf albums/<uid>/` + DB row, not just mark inaccessible.
-- Proactive disk alert (ntfy) at ~85%.
-- TOTP-reset CLI: one command clears a user's enrolment so next login re-enrols (no schema change; real recovery codes ride the 2.0 rework).
-
-## 1.2.0 — hardening
-Defence-in-depth from the v1.1.1 audit; none is a live exposure on the proxied deploy.
-- Configurable proxy-trust depth (env var); verify the Caddy→app XFF hop behind the tunnel.
-- Per-route rate cap on the bulk byte endpoints (`/api/a/:uid/zip` + per-photo).
-- TOTP replay protection: track the last-used step per user.
-- Session revocation: rotate the refresh token on use + `token_version` (bumped on logout / password change).
-
-## 1.3.0 — download UX
+## 1.3.0 — download UX (next)
 The download flow, finally sane.
 - Explicit picker: **Zip file** (on-the-fly streamed, never buffered in RAM/disk) vs **Direct download**.
 - Mobile-correct: direct routes through the share sheet → Photos; zip lands in Files.
