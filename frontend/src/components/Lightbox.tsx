@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { downloadUrl, shareFile } from '../lib/share';
+import { canShareFiles, downloadUrl, fetchAsFile, shareLoadedFiles } from '../lib/share';
 
 export interface LightboxPhoto {
   id: number;
@@ -35,6 +35,9 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
   // A completed swipe fires a synthetic click; briefly ignore it so it can't also
   // trigger a nav button that happens to sit under the release point.
   const suppressClick = useRef(false);
+  // The current photo's full-resolution original, prefetched while it's on screen so
+  // a Save fires the share sheet synchronously (see the prefetch effect + onSave).
+  const originalRef = useRef<{ id: number; file: File } | null>(null);
 
   // Reset zoom + pan whenever the photo changes.
   useEffect(() => {
@@ -55,6 +58,43 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, photos.length, onClose, onIndex]);
 
+  // Preload the neighbouring display images so swiping paints instantly.
+  useEffect(() => {
+    for (const i of [index + 1, index - 1]) {
+      const p = photos[i];
+      if (!p) continue;
+      const img = new Image();
+      img.src = `/api/a/${uid}/display/${p.id}`;
+    }
+  }, [index, photos, uid]);
+
+  // Prefetch the current photo's full-resolution original a moment after it settles,
+  // so tapping Save fires the share sheet instantly with the original bytes (staying
+  // inside the tap's activation window). Debounced so fast swiping doesn't pull every
+  // original; cancelled on navigation.
+  useEffect(() => {
+    const p = photos[index];
+    if (!p || !canShareFiles() || originalRef.current?.id === p.id) return;
+    const controller = new AbortController();
+    const t = window.setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/a/${uid}/download/${p.id}`, {
+          credentials: 'include',
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const blob = await res.blob();
+        originalRef.current = { id: p.id, file: new File([blob], p.name, { type: blob.type }) };
+      } catch {
+        /* aborted or failed — Save will fetch on demand */
+      }
+    }, 700);
+    return () => {
+      window.clearTimeout(t);
+      controller.abort();
+    };
+  }, [index, photos, uid]);
+
   if (!photo) return null;
   const downloadHref = `/api/a/${uid}/download/${photo.id}`;
 
@@ -68,8 +108,27 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
   }
 
   const onSave = async () => {
-    const shared = await shareFile(downloadHref, photo.name);
-    if (!shared) downloadUrl(downloadHref, photo.name);
+    // Desktop / no file-share: straight full-resolution download.
+    if (!canShareFiles()) {
+      downloadUrl(downloadHref, photo.name);
+      return;
+    }
+    // Mobile: share the FULL-RES original to Photos. Use the prefetched original if
+    // it's ready, so navigator.share fires inside the tap's activation window;
+    // otherwise fetch on demand (works when the download beats the window).
+    try {
+      const cached = originalRef.current;
+      const file =
+        cached && cached.id === photo.id
+          ? cached.file
+          : await fetchAsFile(downloadHref, photo.name);
+      if (await shareLoadedFiles([file])) return;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return; // user cancelled
+    }
+    // Fallback: still the full-resolution original, just downloaded (→ Files) instead
+    // of routed to Photos. Never a re-encoded/compressed version.
+    downloadUrl(downloadHref, photo.name);
   };
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {

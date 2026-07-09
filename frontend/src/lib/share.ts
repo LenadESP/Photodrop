@@ -16,14 +16,16 @@ export async function fetchAsFile(url: string, filename: string): Promise<File> 
   return new File([blob], filename, { type: blob.type });
 }
 
-// Returns true if the share sheet was invoked, false if the caller should fall
-// back to a normal download.
-export async function shareFile(url: string, filename: string): Promise<boolean> {
-  if (!canShareFiles()) return false;
+// Share already-loaded File objects (full-resolution originals). Kept separate
+// from the fetch-then-share helpers so a caller that has prepared the bytes ahead
+// of time can fire the share sheet synchronously inside the tap's user-activation
+// window — the difference between a reliable "Save to Photos" and a silent failure
+// when a multi-MB original takes longer than that window to download.
+export async function shareLoadedFiles(files: File[]): Promise<boolean> {
+  if (!canShareFiles() || files.length === 0) return false;
   try {
-    const file = await fetchAsFile(url, filename);
-    if (!navigator.canShare({ files: [file] })) return false;
-    await navigator.share({ files: [file] });
+    if (!navigator.canShare({ files })) return false;
+    await navigator.share({ files });
     return true;
   } catch (err) {
     // User cancelling the sheet throws AbortError — treat as handled.
@@ -53,9 +55,7 @@ export async function shareFiles(items: DownloadItem[]): Promise<boolean> {
   if (!canShareFiles() || items.length === 0) return false;
   try {
     const files = await Promise.all(items.map((i) => fetchAsFile(i.url, i.name)));
-    if (!navigator.canShare({ files })) return false;
-    await navigator.share({ files });
-    return true;
+    return await shareLoadedFiles(files);
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') return true;
     return false;
