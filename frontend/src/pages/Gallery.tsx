@@ -116,17 +116,18 @@ export function Gallery() {
   const readyPhotos = photos.filter((p) => p.ready);
   const pendingCount = photos.length - readyPhotos.length;
 
-  // Mobile → OS share sheet (one action, "Save N Images" straight into Photos).
-  // Desktop, or if sharing isn't available/declined → a single streamed zip.
-  const downloadAll = async () => {
+  // Explicit picker: "Save to Photos" shares the full-resolution originals through
+  // the OS share sheet (one action → "Save N Images" into Photos); "Download ZIP"
+  // streams the same originals as a single archive (lands in Files/Downloads). Both
+  // deliver originals — the display derivative is only ever used for on-screen viewing.
+  const shareOriginals = canShareFiles();
+  const saveAllToPhotos = async () => {
     if (readyPhotos.length === 0 || downloadingAll) return;
     setDownloadingAll(true);
     try {
-      if (canShareFiles()) {
-        const items = readyPhotos.map((p) => ({ url: `/api/a/${uid}/download/${p.id}`, name: p.name }));
-        if (await shareFiles(items)) return;
-      }
-      downloadAlbumZip(uid);
+      const items = readyPhotos.map((p) => ({ url: `/api/a/${uid}/download/${p.id}`, name: p.name }));
+      if (await shareFiles(items)) return;
+      downloadAlbumZip(uid); // share unavailable or declined → fall back to the zip
     } finally {
       setDownloadingAll(false);
     }
@@ -143,10 +144,15 @@ export function Gallery() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {readyPhotos.length > 0 && (
-            <Button variant="secondary" size="sm" onClick={() => void downloadAll()} disabled={downloadingAll}>
+          {readyPhotos.length > 0 && shareOriginals && (
+            <Button variant="secondary" size="sm" onClick={() => void saveAllToPhotos()} disabled={downloadingAll}>
               {downloadingAll ? <Spinner className="h-4 w-4" /> : null}
-              {downloadingAll ? 'Saving…' : 'Download all'}
+              {downloadingAll ? 'Saving…' : 'Save to Photos'}
+            </Button>
+          )}
+          {readyPhotos.length > 0 && (
+            <Button variant="secondary" size="sm" onClick={() => downloadAlbumZip(uid)}>
+              Download ZIP
             </Button>
           )}
           <ThemeToggle />
