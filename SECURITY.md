@@ -26,17 +26,20 @@ runs on untrusted image bytes).
 - **Argon2 verified before bytes are served.** Album passwords are checked with
   argon2id *before* any photo bytes leave the server (`routes/public.ts` `hasAccess`
   + unlock).
-- **Enumeration resistance.** A missing username still burns an argon2 hash; a missing
-  or password-less album still burns an argon2 verify and returns an identical
-  response — no timing or existence oracle.
+- **Enumeration resistance.** A missing username — and a locked account — burns an argon2
+  hash and returns the same generic 401; a missing or password-less album still burns an
+  argon2 verify and returns an identical response. No timing or existence oracle.
 - **Rate limiting.** Global baseline 1000 req/min; auth and unlock routes clamp to
   10/min, refresh to 30/min, and the bulk-byte endpoints to 30/min (`/zip`) and 300/min
   (full originals) (`plugins/security.ts`, per-route `config.rateLimit`). The proxy-trust
   depth that makes `req.ip` the real client IP is configurable via `TRUST_PROXY_HOPS`
   (default 1 — the single Caddy hop).
-- **Account lockout.** 5 failed attempts → a 5-minute lock (HTTP 423), applied to the
-  password step, the TOTP step, and `/api/auth/refresh` — a held refresh token can't mint
-  a session while the account is locked (`routes/auth.ts`).
+- **Account lockout.** 5 failed attempts → a 5-minute lock, applied to the password step,
+  the TOTP step, and `/api/auth/refresh` — a held refresh token can't mint a session while
+  the account is locked (`routes/auth.ts`). The password step answers a locked account
+  with the same generic 401, at the same argon2 cost, as an unknown username, so the lock
+  reveals nothing about whether the account exists. The TOTP and refresh steps are already
+  past a correct password or a valid token, so they return an explicit 423.
 
 ## Session & cookies
 

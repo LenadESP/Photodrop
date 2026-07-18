@@ -80,7 +80,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(401).send({ error: 'Invalid credentials' });
       }
       if (user.locked_until && Date.now() < user.locked_until) {
-        return reply.code(423).send({ error: 'Account temporarily locked. Try again later.' });
+        // Answer a locked account exactly as an unknown username, so the lock is
+        // not an account-existence oracle. The argon2 burn matters as much as the
+        // status code here: without it this branch would return before any KDF
+        // work and be measurably faster than every other outcome, trading a
+        // status-code oracle for a timing one. Attempts stay frozen while locked.
+        await hashSecret(password);
+        return reply.code(401).send({ error: 'Invalid credentials' });
       }
       if (!(await verifySecret(user.password_hash, password))) {
         registerFailure(user);
