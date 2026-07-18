@@ -22,8 +22,9 @@ Put the file at docs/media/demo.gif and reference it as:
   served. Plus a public/private toggle.
 - **Gallery** — responsive thumbnail grid, full-screen lightbox with zoom + drag-to-pan,
   download-one, and "Save to Photos" via the mobile share sheet.
-- **Download all** — a streamed zip on desktop; the OS share sheet on mobile ("Save N
-  Images" straight to Photos).
+- **Download all** — every full-resolution original saved to the device as individual
+  downloads, or the whole album as one streamed zip. Both are offered on phone and
+  desktop alike; always the originals, never a re-encode.
 - **EXIF stripping** — GPS and camera metadata removed losslessly at upload, on by
   default, per-album toggle.
 - **Dark mode** — follows the OS preference, with a persisted manual toggle.
