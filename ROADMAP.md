@@ -4,27 +4,29 @@ Direction, not a commitment. Single-maintainer project; items land when they lan
 The V1 schema was deliberately shaped so the big multi-tenant item stays additive.
 
 Shipped items live in [CHANGELOG.md](https://github.com/LenadESP/Photodrop/blob/main/CHANGELOG.md).
-Everything through **1.3.1** is shipped: reliability & delivery (1.1.0), the polish /
+Everything through **1.3.2** is shipped: reliability & delivery (1.1.0), the polish /
 mobile / lifecycle line (1.1.3–1.1.5), the security-hardening tranche (1.2.0 —
 configurable proxy-trust, bulk-endpoint rate caps, TOTP replay protection, session
-revocation), and the download UX (1.3.0 — explicit picker + reliable single-photo
-full-resolution save; 1.3.1 — phone "download all" as direct per-file downloads).
+revocation), the download UX (1.3.0 — explicit picker + reliable single-photo
+full-resolution save; 1.3.1 — phone "download all" as direct per-file downloads), and
+the documentation corrections from the v1.3.1 audit (1.3.2).
 
 Notation: `x.Y.0` = features, `x.x.Y` = fixes/polish.
 
-## 1.3.2 — security-doc corrections + small hardening (next)
-From the v1.3.1 full-codebase audit — no high/critical issues; low-severity corrections
-and defensive polish.
-- **Fix two overstated SECURITY.md claims** (the audit's main output):
-  - Refresh tokens: rotation issues a new token but does **not** invalidate the old one —
-    version-based revocation only clears outstanding tokens on logout/expiry, so a stolen
-    refresh token stays valid up to its 7-day life. Reword the "can't be replayed" line to
-    match what's enforced.
-  - Enumeration: a locked account returns 423 vs 401 for an unknown username — a mild
-    existence oracle. Reword "no existence oracle", or return a generic 401 when locked.
-- **Optional small hardening (low-risk):** pin the JWT verifier to `HS256` explicitly
-  (already effectively HS-only — defence in depth); minimum-length check on the secrets in
-  `env.ts`, on top of the `CHANGE_ME` guard.
+## 1.3.3 — auth hardening (next)
+The code half of the v1.3.1 audit; the documentation half shipped as 1.3.2.
+- **A locked account should not identify itself at login.** Login answers 423 for a
+  locked account but 401 for an unknown username — a mild existence oracle. Return the
+  same generic 401, burning a comparable argon2 hash so the lockout does not become a
+  *timing* oracle instead (the locked branch currently returns before any argon2 work).
+  `/totp/verify` and `/api/auth/refresh` keep 423: both sit behind a correct password or
+  a valid token, so no enumeration oracle exists there, and 423 is the more useful answer
+  for the operator.
+- **Pin the JWT verifier to `HS256`** explicitly — already effectively HS-only, so this
+  is defence in depth.
+- **Minimum-length check on the signing secrets** in `env.ts`, on top of the `CHANGE_ME`
+  guard. Production-gated, and scoped to the three crypto secrets — `ADMIN_PASSWORD`
+  flows through the same helper but is a human password, not a key.
 - Deeper follow-ups the audit flagged (per-token refresh reuse detection; a softer lockout
   so the sole admin can't be locked out) are larger and left unscheduled for now.
 

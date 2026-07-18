@@ -2,6 +2,25 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.3.2] — 2026-07-18 — documentation accuracy
+
+A documentation release from a full docs-vs-code audit. No behaviour changes: the only
+source edit is a corrected comment.
+
+### Fixed
+
+- **The README promised a bulk-download flow that no longer exists.** The Features list
+  still described "a streamed zip on desktop; the OS share sheet on mobile" — the
+  pre-1.3.1 behaviour. Since 1.3.1 the gallery offers both **Download all** (each
+  full-resolution original as its own direct download) and **Download ZIP** (the same
+  originals as one streamed archive), on every device.
+- **The security docs overstated refresh-token rotation.** SECURITY.md described refresh
+  as rotating the token on use, and the code comment claimed a used or stolen refresh
+  token "can't be replayed". Neither matches the code: refresh issues a fresh pair but
+  reuses the current `token_version` rather than bumping it, so the token presented stays
+  valid for its full 7-day lifetime — only logout actually revokes. Both now describe
+  what is enforced, and the residual risk is recorded under Known limitations.
+
 ## [1.3.1] — 2026-07-09 — phone "download all"
 
 Bulk "download all" on a phone now saves the full-resolution originals straight to the
