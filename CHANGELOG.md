@@ -2,6 +2,19 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.4.1] — 2026-07-18 — long uploads survive their session
+
+### Fixed
+
+- **A large upload no longer dies when its access token expires.** The access token
+  lives 15 minutes; a 2 GiB upload over a home uplink runs 15–30. The later part
+  requests of an upload therefore outlived the token that authorised the first one,
+  and since the API client only retried on `403` (CSRF) and never on `401`, every
+  remaining part failed — breaking exactly the large files resumable upload was built
+  for. A `401` now mints a fresh token from the refresh cookie and retries once.
+  Concurrent failures share a single refresh rather than stampeding the endpoint,
+  which also matters because refresh rotates the token.
+
 ## [1.4.0] — 2026-07-18 — resumable uploads
 
 Large files can now be uploaded at all. Migration `005` runs automatically; nothing
