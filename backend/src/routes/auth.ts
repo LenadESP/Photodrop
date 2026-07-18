@@ -252,6 +252,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return { csrfToken: token };
   });
 
-  // Expose the configured public origin (handy for building share links).
-  app.get('/api/config', async () => ({ publicOrigin: env.publicOrigin }));
+  // Public origin (for building share links) plus the upload limits, so the
+  // client picks the batch or the resumable path from the server's actual
+  // numbers instead of a duplicated constant that can silently drift.
+  app.get('/api/config', async () => ({
+    publicOrigin: env.publicOrigin,
+    maxFileBytes: env.maxFileBytes,
+    maxUploadBytes: env.maxUploadBytes,
+    uploadPartBytes: env.uploadPartBytes,
+  }));
 }

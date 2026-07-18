@@ -7,6 +7,9 @@ interface RequestOptions {
   method?: string;
   body?: unknown;
   form?: FormData;
+  // Raw binary body (one part of a resumable upload), sent as
+  // application/octet-stream so the server can stream it straight to disk.
+  raw?: Blob;
   signal?: AbortSignal;
 }
 
@@ -29,7 +32,10 @@ export async function api<T = unknown>(path: string, opts: RequestOptions = {}):
   const headers: Record<string, string> = {};
   let body: BodyInit | undefined;
 
-  if (opts.form) {
+  if (opts.raw) {
+    headers['Content-Type'] = 'application/octet-stream';
+    body = opts.raw;
+  } else if (opts.form) {
     body = opts.form;
   } else if (opts.body !== undefined) {
     headers['Content-Type'] = 'application/json';

@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { api } from '../lib/api';
+import { uploadResumable, type UploadLimits } from '../lib/upload';
 import { Spinner } from './Spinner';
 
 interface Props {
@@ -9,12 +10,15 @@ interface Props {
   onError: (message: string) => void;
 }
 
-// Chunk large drops by total size so each request stays under Cloudflare's
-// ~100 MB tunnel limit, and by count so it stays under the backend's per-request
-// cap (40). A single file over MAX_CHUNK_BYTES becomes its own request (and is
-// rejected by the backend's 50 MB per-file cap if too large).
+// Small files still go up as batched multipart requests — it's far fewer round
+// trips than one session per photo. Anything at or over the server's per-file cap
+// can't use that path at all (it would 413), so it goes through the resumable
+// chunked route instead. The threshold comes from /api/config rather than a
+// constant here, so it can't drift away from what the server actually enforces.
 const MAX_CHUNK_BYTES = 90 * 1024 * 1024;
 const MAX_CHUNK_FILES = 30;
+// Used only until /api/config answers; deliberately conservative.
+const FALLBACK_MAX_FILE_BYTES = 50 * 1024 * 1024;
 
 function chunkFiles(files: File[]): File[][] {
   const chunks: File[][] = [];
@@ -36,30 +40,58 @@ function chunkFiles(files: File[]): File[][] {
 export function UploadZone({ uid, onUploaded, onError }: Props) {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [detail, setDetail] = useState<string | null>(null);
+  const [limits, setLimits] = useState<UploadLimits | null>(null);
+
+  useEffect(() => {
+    api<UploadLimits>('/api/config')
+      .then(setLimits)
+      .catch(() => setLimits(null)); // fall back to the conservative constant
+  }, []);
 
   const onDrop = useCallback(
     async (accepted: File[]) => {
       if (accepted.length === 0) return;
+      const perFileCap = limits?.maxFileBytes ?? FALLBACK_MAX_FILE_BYTES;
+      const big = accepted.filter((f) => f.size >= perFileCap);
+      const small = accepted.filter((f) => f.size < perFileCap);
+
       setBusy(true);
       setProgress({ done: 0, total: accepted.length });
       try {
         let done = 0;
-        for (const chunk of chunkFiles(accepted)) {
+
+        for (const chunk of chunkFiles(small)) {
           const form = new FormData();
           for (const f of chunk) form.append('files', f, f.name);
           await api(`/api/admin/albums/${uid}/photos`, { method: 'POST', form });
           done += chunk.length;
           setProgress({ done, total: accepted.length });
         }
+
+        // Large files go one at a time, in parts, with byte-level progress —
+        // a single file here can be minutes of upload.
+        for (const file of big) {
+          await uploadResumable(uid, file, {
+            onProgress: (sent, total) => {
+              setDetail(`${file.name} — ${Math.round((sent / total) * 100)}%`);
+            },
+          });
+          done += 1;
+          setDetail(null);
+          setProgress({ done, total: accepted.length });
+        }
+
         onUploaded(accepted.length);
       } catch (err) {
         onError(err instanceof Error ? err.message : 'Upload failed');
       } finally {
         setBusy(false);
         setProgress(null);
+        setDetail(null);
       }
     },
-    [uid, onUploaded, onError],
+    [uid, onUploaded, onError, limits],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -77,9 +109,12 @@ export function UploadZone({ uid, onUploaded, onError }: Props) {
     >
       <input {...getInputProps()} />
       {busy ? (
-        <div className="flex items-center gap-2 text-muted">
-          <Spinner />
-          {progress ? `Uploading ${progress.done}/${progress.total}…` : 'Uploading…'}
+        <div className="flex flex-col items-center gap-1 text-muted">
+          <div className="flex items-center gap-2">
+            <Spinner />
+            {progress ? `Uploading ${progress.done}/${progress.total}…` : 'Uploading…'}
+          </div>
+          {detail && <span className="text-xs">{detail}</span>}
         </div>
       ) : (
         <>
