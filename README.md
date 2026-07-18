@@ -22,11 +22,14 @@ Put the file at docs/media/demo.gif and reference it as:
   served. Plus a public/private toggle.
 - **Gallery** — responsive thumbnail grid, full-screen lightbox with zoom + drag-to-pan,
   download-one, and "Save to Photos" via the mobile share sheet.
+- **Video** — MP4/MOV alongside photos, with a poster-frame thumbnail and an in-browser
+  preview (1080p, 24fps, bitrate-capped) generated once at upload. Downloads are always
+  the untouched original.
 - **Download all** — every full-resolution original saved to the device as individual
   downloads, or the whole album as one streamed zip. Both are offered on phone and
   desktop alike; always the originals, never a re-encode.
-- **EXIF stripping** — GPS and camera metadata removed losslessly at upload, on by
-  default, per-album toggle.
+- **Metadata stripping** — GPS and camera metadata removed losslessly at upload from
+  photos *and* video, on by default, per-album toggle.
 - **Dark mode** — follows the OS preference, with a persisted manual toggle.
 - **Admin dashboard** — create / rename / toggle public / set-remove password /
   regenerate link / set-clear link expiry / toggle EXIF / delete albums, plus drag-drop
@@ -122,6 +125,7 @@ than 32 characters (`openssl rand -base64 48` gives 64, well clear of the floor)
                                              SQLite (WAL)              filesystem
                                           data/photodrop.db      albums/<uid>/originals
                                                                  albums/<uid>/display
+                                                                 albums/<uid>/preview
                                                                  albums/<uid>/thumbs
 ```
 
@@ -131,7 +135,7 @@ SQLite database plus photo files on a mounted volume — no external services. S
 
 ## Status
 
-In production, single-operator (currently **v1.4.1**). Runs the author's photo delivery
+In production, single-operator (currently **v1.5.0**). Runs the author's photo delivery
 at `https://photos.lenadesp.org`. It's a one-admin tool by design: one seeded account,
 mandatory TOTP, no self-service user management. The V2 client-portal groundwork
 (user roles, `album_assignments`) is in the schema but not yet wired to routes.
@@ -141,7 +145,6 @@ appear as a background worker finishes each photo (see [CHANGELOG.md](CHANGELOG.
 
 ## Roadmap
 
-- [ ] Video support (1.4.0) — uploads, poster-frame thumbnails, capped preview transcode
 - [ ] V2 client portal — per-user album assignments (schema scaffolding already present)
 - [ ] TOTP recovery codes · multi-admin / user management · automated test suite
 
@@ -150,7 +153,7 @@ Shipped changes in [CHANGELOG.md](CHANGELOG.md); full detail and rationale in
 
 ## Tech stack
 
-- **Backend:** Fastify 5 + TypeScript (Node 22, ESM), better-sqlite3, sharp,
+- **Backend:** Fastify 5 + TypeScript (Node 22, ESM), better-sqlite3, sharp, ffmpeg,
   argon2, exiftool-vendored, otplib, TypeBox validation.
 - **Frontend:** React 19 + Vite + Tailwind CSS 4, react-router, react-dropzone.
 - **Packaging:** multi-stage Docker image, single container behind a reverse proxy.

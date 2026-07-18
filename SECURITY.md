@@ -74,8 +74,10 @@ runs on untrusted image bytes).
 ## Upload & image handling
 
 - **Magic-byte validation.** File type is determined from the first bytes, not the
-  extension or the multipart mimetype (both attacker-controlled). Only JPEG, PNG, and
-  WebP pass; SVG/XML can never match (`lib/images.ts`).
+  extension or the multipart mimetype (both attacker-controlled). Only JPEG, PNG and
+  WebP pass as images; SVG/XML can never match (`lib/images.ts`). Video is identified
+  from the ISO base-media `ftyp` box and its major brand — MP4 and MOV only — then
+  validated by `ffprobe` before anything is persisted (`lib/video.ts`).
 - **Two-stage decode gate.** Ingest runs a cheap header check (`probeImage`: magic bytes
   + a header-only `sharp().metadata()` read), which rejects non-images, wrong types, and
   — via declared dimensions vs `limitInputPixels`/`MAX_IMAGE_PIXELS` (default 50 MP) — a
@@ -85,10 +87,15 @@ runs on untrusted image bytes).
   Trade-off: a bad file is caught a moment after ingest rather than rejecting the request,
   but it is never served (see below) and never persists.
 - **Metadata stripping.** GPS, camera serial, and all other tags are removed losslessly
-  by default (`lib/exif.ts`, exiftool). The strip runs in the worker, but **photo bytes
-  are not served until `thumb_status = 'ready'`** — i.e. after the strip — so an
-  un-stripped original is never exposed. Thumbnails never carry metadata (sharp drops it
-  by default). The per-album toggle affects future uploads only.
+  by default from photos **and video** (`lib/exif.ts`, exiftool) — phone video carries
+  GPS in its container metadata just as photos do in EXIF, and this is verified against
+  a real GPS-tagged MP4 rather than assumed. For video the strip and the poster frame
+  must both succeed before the row is marked servable; if either fails the row is marked
+  `failed` and no bytes are served. Posters and video previews are re-encoded by
+  ffmpeg/sharp and so carry no source metadata by construction. The strip runs in the
+  worker, but **bytes are not served until `thumb_status = 'ready'`** — i.e. after the
+  strip — so an un-stripped original is never exposed. The per-album toggle affects
+  future uploads only.
 - **Path safety.** On-disk names are random and decoupled from user input; album paths
   are built from a validated uid and passed through `safeJoin`, which refuses anything
   escaping the album directory (`lib/paths.ts`).

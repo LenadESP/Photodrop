@@ -2,6 +2,49 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.5.0] — 2026-07-18 — video
+
+Video alongside photos, on the same pipeline. Migration `006` runs automatically;
+existing rows default to `kind = 'image'` and are untouched. The image now ships ffmpeg
+(~150 MB larger).
+
+### Added
+
+- **Video uploads (MP4/MOV).** Identified from the ISO base-media `ftyp` box and
+  validated with `ffprobe` before anything is persisted — never from the extension or
+  the client-supplied mimetype. Large clips ride the resumable upload added in 1.4.0,
+  without which a video of any real length couldn't get past the ~100 MB request-body
+  ceiling at all.
+- **Poster-frame thumbnails**, written into the same `thumbs/` directory as image
+  thumbnails so the gallery grid needs no special case, with a play badge and duration
+  in the grid.
+- **In-browser preview** — 1080p, 24fps, bitrate-capped H.264/AAC, generated once at
+  upload and never on the fly. **Downloads, saves and zips still serve the untouched
+  original**, exactly as with photos; the preview exists for on-screen playback only.
+- **Byte-range requests** (`Accept-Ranges`, `206`, `Content-Range`, `416`). Not optional:
+  Safari and iOS refuse to play a source without them, and seeking is broken everywhere
+  else.
+
+### Changed
+
+- **Photo thumbnails are processed before video transcodes.** The thumbnail queue drains
+  completely before any transcode starts, and is re-checked after each one, so a newly
+  uploaded photo never waits behind a video being re-encoded. It is priority at pickup,
+  not preemption — a transcode already running finishes first.
+- **Metadata stripping now covers video**, not just photo EXIF. Phone video carries GPS
+  in its container metadata; this is verified against a real GPS-tagged MP4 rather than
+  assumed.
+- ffmpeg runs `-threads 1` at `-preset veryfast`, with scratch on the data volume rather
+  than the `/tmp` tmpfs — on a 2017 dual-core with a 1.5-CPU cap an unbounded transcode
+  makes the live gallery sluggish, and tmpfs scratch is RAM that would OOM the container.
+
+### Note
+
+A video whose transcode fails keeps its original, served at full resolution, and simply
+has no in-browser preview. A video whose metadata strip or poster frame fails is marked
+`failed` instead: kept and visible in the dashboard, but never served — serving an
+un-stripped original would defeat the metadata guarantee.
+
 ## [1.4.1] — 2026-07-18 — long uploads survive their session
 
 ### Fixed
