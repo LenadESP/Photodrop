@@ -19,10 +19,12 @@ RUN npm run build && npm prune --omit=dev # tsc → dist; drop dev deps, keep na
 
 # ── 3. Runtime ───────────────────────────────────────────────────────────────
 FROM node:${NODE_VERSION}-slim AS runtime
-# exiftool-vendored ships the exiftool Perl script but relies on a perl interpreter.
-# Installed in THIS image only — never on the host.
+# perl: exiftool-vendored ships the exiftool Perl script but relies on an interpreter.
+# ffmpeg: video poster frames and the bitrate-capped preview transcode (ffprobe
+# comes with it and is the ingest gate for video, as sharp is for images).
+# Both installed in THIS image only — never on the host.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends perl \
+    && apt-get install -y --no-install-recommends perl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production

@@ -48,6 +48,14 @@ export function displayDir(uid: string): string {
   return join(albumDir(uid), 'display');
 }
 
+// Bitrate-capped video playback derivatives. Separate from display/ because the
+// two are different media with different lifecycles: a display image is always
+// regenerable from its original, whereas a preview transcode may legitimately
+// have failed while the original stays perfectly servable.
+export function previewDir(uid: string): string {
+  return join(albumDir(uid), 'preview');
+}
+
 // Resolve `name` under `base` and refuse anything that escapes it (defence in
 // depth — stored filenames are already random, never user-derived).
 export function safeJoin(base: string, name: string): string {

@@ -3,6 +3,8 @@ import type { FastifyInstance } from 'fastify';
 import { newStoredFilename } from './ids.js';
 import { originalsDir, safeJoin } from './paths.js';
 import { probeImage } from './images.js';
+import { probeVideo } from './video.js';
+import type { MediaKind, PreviewStatus } from '../db/types.js';
 
 export interface IngestFile {
   // A file already staged on the data volume (same filesystem as albums/, so the
@@ -23,6 +25,9 @@ interface Prepared {
   width: number;
   height: number;
   bytes: number;
+  kind: MediaKind;
+  durationMs: number | null;
+  previewStatus: PreviewStatus;
 }
 
 // Validate + commit a batch of staged files into an album.
@@ -53,19 +58,43 @@ export async function ingestFiles(
 
   const prepared: Prepared[] = [];
   for (const file of files) {
-    const probe = await probeImage(file.tmpPath);
-    if (!probe) {
-      return { ok: false, status: 415, error: `Unsupported or invalid image: ${file.originalName}` };
+    // Images first — the common case, and the cheaper probe. Only if the magic
+    // bytes aren't a supported image is this maybe-a-video.
+    const image = await probeImage(file.tmpPath);
+    if (image) {
+      prepared.push({
+        tmpOriginal: file.tmpPath,
+        storedFilename: newStoredFilename(image.kind),
+        thumbName: newStoredFilename('webp'),
+        originalName: file.originalName,
+        width: image.width,
+        height: image.height,
+        bytes: statSync(file.tmpPath).size,
+        kind: 'image',
+        durationMs: null,
+        previewStatus: null,
+      });
+      continue;
     }
-    prepared.push({
-      tmpOriginal: file.tmpPath,
-      storedFilename: newStoredFilename(probe.kind),
-      thumbName: newStoredFilename('webp'),
-      originalName: file.originalName,
-      width: probe.width,
-      height: probe.height,
-      bytes: statSync(file.tmpPath).size,
-    });
+
+    const video = await probeVideo(file.tmpPath);
+    if (video) {
+      prepared.push({
+        tmpOriginal: file.tmpPath,
+        storedFilename: newStoredFilename(video.kind),
+        thumbName: newStoredFilename('webp'), // poster frame, same dir as image thumbs
+        originalName: file.originalName,
+        width: video.width,
+        height: video.height,
+        bytes: statSync(file.tmpPath).size,
+        kind: 'video',
+        durationMs: video.durationMs,
+        previewStatus: 'pending',
+      });
+      continue;
+    }
+
+    return { ok: false, status: 415, error: `Unsupported or invalid file: ${file.originalName}` };
   }
 
   const moved: string[] = [];
@@ -77,8 +106,9 @@ export async function ingestFiles(
     }
     const insert = app.db.prepare(
       `INSERT INTO photos
-         (album_uid, stored_filename, original_name, thumb_path, width, height, bytes, thumb_status, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+         (album_uid, stored_filename, original_name, thumb_path, width, height, bytes,
+          thumb_status, kind, duration_ms, preview_status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     );
     app.db.transaction(() => {
       const now = Date.now();
@@ -91,6 +121,9 @@ export async function ingestFiles(
           item.width,
           item.height,
           item.bytes,
+          item.kind,
+          item.durationMs,
+          item.previewStatus,
           now,
         );
       }

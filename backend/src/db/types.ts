@@ -37,6 +37,9 @@ export interface UploadSessionRow {
 }
 
 export type ThumbStatus = 'pending' | 'ready' | 'failed';
+export type MediaKind = 'image' | 'video';
+// NULL on images — the playback derivative only applies to video.
+export type PreviewStatus = 'pending' | 'ready' | 'failed' | null;
 
 export interface PhotoRow {
   id: number;
@@ -48,5 +51,8 @@ export interface PhotoRow {
   height: number | null;
   bytes: number | null;
   thumb_status: ThumbStatus;
+  kind: MediaKind;
+  duration_ms: number | null;
+  preview_status: PreviewStatus;
   created_at: number;
 }
