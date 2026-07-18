@@ -188,8 +188,12 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(401).send({ error: 'Unauthorized' });
     }
 
-    // Rotate the refresh token on use (and issue a fresh access), both carrying
-    // the current version — a used/stolen refresh token can't be replayed.
+    // Issue a fresh access + refresh pair, both carrying the current version.
+    // Note this RE-ISSUES rather than revokes: the refresh token presented here
+    // stays valid until it expires, because issueSession reuses the user's
+    // current token_version instead of bumping it. Revocation is version-based —
+    // logout bumps the version and kills every outstanding token at once.
+    // Per-token reuse detection is a known gap; see SECURITY.md.
     await issueSession(reply, user);
     return { ok: true };
   });

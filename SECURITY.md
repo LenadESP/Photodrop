@@ -50,8 +50,13 @@ runs on untrusted image bytes).
 - The refresh cookie is path-scoped to `/api/auth` so it isn't sent on every request.
 - **Revocable sessions.** Session and refresh tokens carry a `token_version` checked
   against the user row on every session guard, `/api/auth/me`, and refresh. Logout bumps
-  the version — invalidating every outstanding token at once — and refresh rotates the
-  refresh token on use (`users.token_version`, `routes/auth.ts`, `plugins/auth.ts`).
+  the version, invalidating every outstanding token at once (`users.token_version`,
+  `routes/auth.ts`, `plugins/auth.ts`).
+- **Refresh tokens are re-issued, not revoked.** Presenting a refresh token mints a
+  fresh session/refresh pair, but the token you presented keeps working until it
+  expires — revocation is version-based (logout), not per-token. A stolen refresh token
+  therefore stays usable for up to its 7-day lifetime unless you log out, which clears
+  it along with everything else. See [Known limitations](#known-limitations).
 
 ## CSRF
 
@@ -118,6 +123,10 @@ Honest about what V1 does **not** do:
   2.0 rework.
 - **No user management.** The `user` role and `album_assignments` table exist in the
   schema for the planned V2 client portal but are not wired to any route yet.
+- **No per-token refresh revocation.** Refresh is re-issue-only (see
+  [Session & cookies](#session--cookies)): there is no `jti` reuse detection, so an
+  individual leaked refresh token cannot be killed on its own — logging out is the blunt
+  instrument that clears every token at once. Reuse detection is a roadmap item.
 - **No audit log** of admin actions or gallery access beyond the reverse proxy's logs.
 - **No malware scanning** of uploads beyond image-decode validation — the admin is the
   only uploader, so this is a deliberate scope decision.
