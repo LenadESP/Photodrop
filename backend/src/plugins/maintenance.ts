@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { env } from '../env.js';
 import { diskUsage } from '../lib/disk.js';
 import { notify } from '../lib/notify.js';
-import { albumDir, displayDir, originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
+import { albumDir, displayDir, originalsDir, safeJoin, thumbsDir, uploadSessionDir } from '../lib/paths.js';
 import { isValidUid } from '../lib/ids.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -128,6 +128,56 @@ export function expirySweep(app: FastifyInstance): void {
   }
 }
 
+// Reclaim abandoned resumable uploads: sessions nobody completed, and part
+// directories with no session row behind them.
+//
+// Note this deliberately does NOT run as part of the boot sweep above, and the
+// parts do not live under tmp/. A restart mid-upload must leave the parts intact
+// — surviving that is the entire point of resumability — so staleness is decided
+// by age, not by the fact that the process restarted.
+export function uploadSweep(app: FastifyInstance): void {
+  let dropped = 0;
+  const cutoff = Date.now() - env.staleUploadMs;
+  const stale = app.db
+    .prepare('SELECT id FROM upload_sessions WHERE created_at <= ?')
+    .all(cutoff) as { id: string }[];
+  for (const { id } of stale) {
+    app.db.prepare('DELETE FROM upload_sessions WHERE id = ?').run(id);
+    try {
+      rmSync(uploadSessionDir(id), { recursive: true, force: true });
+    } catch (err) {
+      app.log.warn({ err, sessionId: id }, 'maintenance: stale upload dir removal failed');
+    }
+    dropped++;
+  }
+
+  // Directories with no surviving session row — left behind if a delete was
+  // interrupted between removing the row and removing the files.
+  const live = new Set(
+    (app.db.prepare('SELECT id FROM upload_sessions').all() as { id: string }[]).map((r) => r.id),
+  );
+  let orphanDirs = 0;
+  let dirs: string[] = [];
+  try {
+    dirs = readdirSync(env.uploadsDir);
+  } catch {
+    /* uploads dir may not exist yet */
+  }
+  for (const name of dirs) {
+    if (!isValidUid(name) || live.has(name)) continue;
+    try {
+      rmSync(join(env.uploadsDir, name), { recursive: true, force: true });
+      orphanDirs++;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (dropped || orphanDirs) {
+    app.log.info({ staleSessions: dropped, orphanDirs }, 'maintenance: reclaimed abandoned uploads');
+  }
+}
+
 let lastDiskAlert = 0;
 
 // Warn (once per cooldown) when the data volume crosses the usage threshold.
@@ -155,12 +205,18 @@ async function diskCheck(app: FastifyInstance): Promise<void> {
 export default fp(async function maintenancePlugin(app: FastifyInstance): Promise<void> {
   orphanSweep(app);
   expirySweep(app);
+  uploadSweep(app);
 
   const timer = setInterval(() => {
     try {
       expirySweep(app);
     } catch (err) {
       app.log.warn({ err }, 'maintenance: expiry sweep failed');
+    }
+    try {
+      uploadSweep(app);
+    } catch (err) {
+      app.log.warn({ err }, 'maintenance: upload sweep failed');
     }
     void diskCheck(app);
   }, MAINTENANCE_INTERVAL_MS);
