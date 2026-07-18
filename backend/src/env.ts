@@ -62,6 +62,9 @@ export const env = {
   dbPath: resolve(dataDir, 'data', 'photodrop.db'),
   albumsDir: resolve(dataDir, 'albums'),
   tmpDir: resolve(dataDir, 'tmp'),
+  // Resumable-upload staging. Separate from tmpDir because the boot orphan sweep
+  // clears that one wholesale, which would defeat resuming across a restart.
+  uploadsDir: resolve(dataDir, 'uploads'),
   publicOrigin: required('PUBLIC_ORIGIN'),
   jwtSecret: signingSecret('JWT_SECRET'),
   csrfSecret: signingSecret('CSRF_SECRET'),
@@ -71,6 +74,14 @@ export const env = {
   maxFileBytes: intEnv('MAX_FILE_BYTES', 52_428_800),
   maxFilesPerUpload: intEnv('MAX_FILES_PER_UPLOAD', 40),
   maxImagePixels: intEnv('MAX_IMAGE_PIXELS', 50_000_000),
+  // Resumable uploads. A single file is sent in parts so no request approaches the
+  // reverse proxy / Cloudflare body ceiling (~100 MB); partBytes is what the client
+  // is told to use and what the server enforces per part. maxUploadBytes caps the
+  // assembled file — the real ceiling for one upload. staleUploadMs is how long an
+  // abandoned session's parts are kept before the maintenance pass reclaims them.
+  uploadPartBytes: intEnv('UPLOAD_PART_BYTES', 8_388_608), // 8 MiB
+  maxUploadBytes: intEnv('MAX_UPLOAD_BYTES', 2_147_483_648), // 2 GiB
+  staleUploadMs: intEnv('STALE_UPLOAD_MS', 24 * 60 * 60 * 1000), // 24 h
   // Refuse uploads when free space on the data volume drops below this floor, so
   // a full disk can't corrupt the SQLite WAL. Default 1 GiB.
   minFreeBytes: intEnv('MIN_FREE_BYTES', 1_073_741_824),

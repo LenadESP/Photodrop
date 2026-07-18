@@ -25,6 +25,17 @@ export interface AlbumRow {
   expires_at: number | null; // epoch ms; NULL = never expires
 }
 
+export interface UploadSessionRow {
+  id: string;
+  album_uid: string;
+  owner_id: number;
+  original_name: string;
+  total_bytes: number;
+  part_size: number;
+  total_parts: number;
+  created_at: number;
+}
+
 export type ThumbStatus = 'pending' | 'ready' | 'failed';
 
 export interface PhotoRow {
