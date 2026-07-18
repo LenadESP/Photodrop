@@ -2,6 +2,32 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.3.3] — 2026-07-18 — auth hardening
+
+The code half of the v1.3.1 audit, following the documentation half in 1.3.2. No schema
+change and no migration; existing sessions survive the upgrade.
+
+### Fixed
+
+- **A locked account no longer identifies itself at login.** Login answered `423` for a
+  locked account but `401` for an unknown username, so the status code revealed whether
+  an account existed. Both now return the same generic `401` — and the locked branch
+  burns an argon2 hash it previously skipped, so it costs the same as an unknown username
+  and a wrong password rather than being measurably faster to probe. Without that burn the
+  fix would only have traded a status-code oracle for a timing one. `/api/auth/totp/verify`
+  and `/api/auth/refresh` keep their explicit `423`: both sit behind a correct password or
+  a valid refresh token, so no enumeration oracle exists there.
+
+### Changed
+
+- **The JWT signer and verifier now name `HS256` explicitly.** A symmetric string secret
+  already selected HS256 and `none` was already rejected, so no token changes — this
+  stops a later key change from silently widening the accepted algorithm set.
+- **The three signing secrets must be at least 32 characters in production**, on top of
+  the existing `CHANGE_ME` placeholder guard. `openssl rand -base64 48` yields 64, so
+  this only catches a hand-written or truncated key. `ADMIN_PASSWORD` is deliberately
+  exempt — it is a human password, not a signing key.
+
 ## [1.3.2] — 2026-07-18 — documentation accuracy
 
 A documentation release from a full docs-vs-code audit. No behaviour changes: the only
