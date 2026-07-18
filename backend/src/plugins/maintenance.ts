@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { env } from '../env.js';
 import { diskUsage } from '../lib/disk.js';
 import { notify } from '../lib/notify.js';
-import { albumDir, displayDir, originalsDir, safeJoin, thumbsDir, uploadSessionDir } from '../lib/paths.js';
+import { albumDir, displayDir, originalsDir, previewDir, safeJoin, thumbsDir, uploadSessionDir } from '../lib/paths.js';
 import { isValidUid } from '../lib/ids.js';
 
 const HOUR = 60 * 60 * 1000;
@@ -17,6 +17,14 @@ interface FileRow {
   album_uid: string;
   stored_filename: string;
   thumb_path: string;
+}
+
+// Every on-disk name a surviving row lays claim to. originals/ uses
+// stored_filename, thumbs/ and display/ share thumb_path, and a video's preview
+// is named from the row id — so the id has to be in the set too, or the sweep
+// would delete every preview as unreferenced.
+function claimedNames(row: { id: number; stored_filename: string; thumb_path: string }): string[] {
+  return [row.stored_filename, row.thumb_path, `${row.id}.mp4`];
 }
 
 // Boot-time storage reconciliation after an interrupted upload or a crash:
@@ -52,6 +60,7 @@ export function orphanSweep(app: FastifyInstance): void {
     for (const f of [
       safeJoin(thumbsDir(p.album_uid), p.thumb_path),
       safeJoin(displayDir(p.album_uid), p.thumb_path),
+      safeJoin(previewDir(p.album_uid), `${p.id}.mp4`),
     ]) {
       try {
         rmSync(f, { force: true });
@@ -67,16 +76,15 @@ export function orphanSweep(app: FastifyInstance): void {
   // stored_filename.
   const ref = new Map<string, Set<string>>();
   const survivors = app.db
-    .prepare('SELECT album_uid, stored_filename, thumb_path FROM photos')
-    .all() as Omit<FileRow, 'id'>[];
+    .prepare('SELECT id, album_uid, stored_filename, thumb_path FROM photos')
+    .all() as FileRow[];
   for (const r of survivors) {
     let set = ref.get(r.album_uid);
     if (!set) {
       set = new Set();
       ref.set(r.album_uid, set);
     }
-    set.add(r.stored_filename);
-    set.add(r.thumb_path);
+    for (const name of claimedNames(r)) set.add(name);
   }
   let uids: string[] = [];
   try {
@@ -87,7 +95,7 @@ export function orphanSweep(app: FastifyInstance): void {
   for (const uid of uids) {
     if (!isValidUid(uid)) continue; // ignore stray non-album entries
     const referenced = ref.get(uid) ?? new Set<string>();
-    for (const sub of [originalsDir(uid), thumbsDir(uid), displayDir(uid)]) {
+    for (const sub of [originalsDir(uid), thumbsDir(uid), displayDir(uid), previewDir(uid)]) {
       let files: string[] = [];
       try {
         files = readdirSync(sub);

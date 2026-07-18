@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Static } from '@sinclair/typebox';
 import { env } from '../env.js';
 import { freeBytes } from '../lib/disk.js';
-import { displayDir, originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
+import { displayDir, originalsDir, previewDir, safeJoin, thumbsDir } from '../lib/paths.js';
 import { ingestFiles } from '../lib/ingest.js';
 import { UidParams, UidPhotoParams } from '../schemas/common.js';
 import type { AlbumRow, PhotoRow } from '../db/types.js';
@@ -77,6 +77,8 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
         safeJoin(originalsDir(uid), photo.stored_filename),
         safeJoin(thumbsDir(uid), photo.thumb_path),
         safeJoin(displayDir(uid), photo.thumb_path),
+        // Video preview derivatives are named from the row id, not thumb_path.
+        safeJoin(previewDir(uid), `${photo.id}.mp4`),
       ]) {
         try {
           rmSync(p, { force: true });
