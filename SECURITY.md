@@ -48,6 +48,8 @@ runs on untrusted image bytes).
 - One signing secret; a `scope` claim (`enroll` / `mfa` / `session` / `refresh` /
   `album`) plus short lifetimes keep the stages isolated — a token for one stage cannot
   satisfy another's guard (`plugins/auth.ts`).
+- Tokens are signed and verified with **HS256, pinned explicitly** on both the signer and
+  the verifier, so the accepted algorithm set can't widen by accident (`plugins/auth.ts`).
 - Lifetimes: session 15 min, refresh 7 days (scoped to `/api/auth`), album unlock 2 h.
   The enroll/mfa intermediate cookie expires with its 10-minute JWT.
 - The refresh cookie is path-scoped to `/api/auth` so it isn't sent on every request.

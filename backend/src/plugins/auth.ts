@@ -45,6 +45,12 @@ export default fp(async function authPlugin(app: FastifyInstance): Promise<void>
 
   await app.register(fastifyJwt, {
     secret: env.jwtSecret,
+    // Pin the algorithm on both sides. HS256 is already what a symmetric string
+    // secret selects, and fast-jwt rejects `none` outright, so this changes no
+    // token today — it's defence in depth, and it stops a future key change from
+    // silently widening the set of algorithms the verifier will accept.
+    sign: { algorithm: 'HS256' },
+    verify: { algorithms: ['HS256'] },
     cookie: { cookieName: ACCESS_COOKIE, signed: false },
   });
 
