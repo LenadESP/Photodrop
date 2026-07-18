@@ -2,6 +2,42 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.4.0] — 2026-07-18 — resumable uploads
+
+Large files can now be uploaded at all. Migration `005` runs automatically; nothing
+about existing albums or the batched upload path changes.
+
+### Added
+
+- **Resumable chunked upload.** Cloudflare caps tunnel request bodies at ~100 MB.
+  Batching solved *many small files*, but it could never solve *one large file* — no
+  arrangement of a single multipart request fits a 500 MB file under a 100 MB ceiling,
+  so such a file simply could not be uploaded. A file at or over `MAX_FILE_BYTES` is now
+  sliced client-side and sent part by part, then assembled server-side, up to
+  `MAX_UPLOAD_BYTES` (default 2 GiB).
+- **Interrupted uploads resume instead of restarting.** The server reports which parts it
+  actually holds, so only the missing ones are re-sent, and a failed part is retried with
+  a widening gap before the upload gives up. Session state lives in SQLite, so a resume
+  survives a container restart. The upload UI shows per-file byte progress, since one
+  file here can be minutes of upload.
+- **Abandoned upload sessions are reclaimed** by the existing maintenance pass after
+  `STALE_UPLOAD_MS` (default 24 h), on boot and hourly.
+
+### Changed
+
+- Both upload routes now share one validate-and-commit path (`lib/ingest.ts`). The
+  assembled file passes exactly the same magic-byte, dimension and decode gates as a
+  batched upload — a second validation path is how a gate quietly drifts out of sync with
+  the one actually enforced.
+- `/api/config` also reports the upload limits, so the client picks its route from the
+  server's real numbers rather than a duplicated constant that can drift.
+
+### Note
+
+Resume currently recovers from a dropped connection *within* an upload attempt. The API
+supports resuming a session across a page reload, but the UI does not yet offer it — a
+re-drop starts a fresh session.
+
 ## [1.3.3] — 2026-07-18 — auth hardening
 
 The code half of the v1.3.1 audit, following the documentation half in 1.3.2. No schema
