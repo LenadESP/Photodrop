@@ -93,7 +93,15 @@ runs on untrusted image bytes).
   are built from a validated uid and passed through `safeJoin`, which refuses anything
   escaping the album directory (`lib/paths.ts`).
 - **Size limits.** `MAX_FILE_BYTES` (default 50 MB) per file and `MAX_FILES_PER_UPLOAD`
-  (default 40) per request; exceeding either returns 413.
+  (default 40) per request on the batched route; exceeding either returns 413. A
+  resumable upload is capped by `MAX_UPLOAD_BYTES` (default 2 GiB).
+- **Resumable uploads are owner-scoped.** Every session lookup matches the row's
+  `owner_id` against the calling admin, so a session id is not a handle into someone
+  else's upload. Part numbers are bounds-checked against the session, each part's
+  `Content-Length` must equal exactly what that part should be (checked before any body
+  is read), and the assembled file must match the declared size or it is discarded. The
+  assembled file then goes through the **same** validation gate as a batched upload —
+  there is one `ingestFiles` path, not two (`lib/ingest.ts`, `routes/admin.uploads.ts`).
 
 ## Transport & headers
 

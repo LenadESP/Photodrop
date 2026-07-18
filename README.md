@@ -31,6 +31,9 @@ Put the file at docs/media/demo.gif and reference it as:
 - **Admin dashboard** — create / rename / toggle public / set-remove password /
   regenerate link / set-clear link expiry / toggle EXIF / delete albums, plus drag-drop
   upload.
+- **Resumable uploads** — large files are sent in parts and assembled server-side, so a
+  file bigger than the reverse proxy's request-body ceiling uploads fine, and a dropped
+  connection costs one part instead of the whole file.
 - **Link expiry** — give an album a deadline; past it the link 404s and the album is
   permanently deleted (row + files) by a background maintenance pass.
 - **Hardened auth** — mandatory TOTP with replay protection, httpOnly+SameSite JWT
@@ -92,8 +95,11 @@ Essential variables (from [`.env.example`](.env.example)):
 | `ADMIN_PASSWORD`       | yes      | —                    | Initial admin password. TOTP is still required on top of it.            |
 | `PUBLIC_ORIGIN`        | yes      | —                    | Public URL; used for share links and Secure-cookie scoping.            |
 | `TZ`                   | no       | `Europe/Madrid`      | Container timezone.                                                     |
-| `MAX_FILE_BYTES`       | no       | `52428800` (50 MB)   | Per-file upload cap.                                                    |
-| `MAX_FILES_PER_UPLOAD` | no       | `40`                 | Per-request file count cap (the frontend chunks larger drops).         |
+| `MAX_FILE_BYTES`       | no       | `52428800` (50 MB)   | Per-file cap on the batched route; larger files switch to resumable.   |
+| `MAX_FILES_PER_UPLOAD` | no       | `40`                 | Per-request file count cap (the frontend batches larger drops).        |
+| `UPLOAD_PART_BYTES`    | no       | `8388608` (8 MiB)    | Part size for resumable uploads. Keep under your proxy's body limit.   |
+| `MAX_UPLOAD_BYTES`     | no       | `2147483648` (2 GiB) | Ceiling for a single resumable upload.                                  |
+| `STALE_UPLOAD_MS`      | no       | `86400000` (24 h)    | Abandoned upload sessions are reclaimed after this.                     |
 | `MAX_IMAGE_PIXELS`     | no       | `50000000` (50 MP)   | Decode cap — a decompression-bomb guard.                               |
 | `MIN_FREE_BYTES`       | no       | `1073741824` (1 GiB) | Refuse uploads below this free space (protects the SQLite WAL).        |
 | `TRUST_PROXY_HOPS`     | no       | `1`                  | Proxy hops to trust for `X-Forwarded-For` (real client IP → rate limit). |
@@ -125,7 +131,7 @@ SQLite database plus photo files on a mounted volume — no external services. S
 
 ## Status
 
-In production, single-operator (currently **v1.3.3**). Runs the author's photo delivery
+In production, single-operator (currently **v1.4.0**). Runs the author's photo delivery
 at `https://photos.lenadesp.org`. It's a one-admin tool by design: one seeded account,
 mandatory TOTP, no self-service user management. The V2 client-portal groundwork
 (user roles, `album_assignments`) is in the schema but not yet wired to routes.

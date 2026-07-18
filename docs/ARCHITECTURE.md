@@ -35,7 +35,8 @@ backend/
       index.ts             opens better-sqlite3 (WAL)
       migrate.ts           file-based migration runner (_migrations table)
       bootstrap.ts         seeds the single admin on first boot
-      migrations/*.sql     001 init, 002 thumb_status, 003 album expiry, 004 auth hardening
+      migrations/*.sql     001 init, 002 thumb_status, 003 album expiry, 004 auth
+                           hardening, 005 upload sessions
       types.ts             row types
     lib/
       cookies.ts           cookie names + serialize options per token type
@@ -49,6 +50,7 @@ backend/
       mime.ts              ext→mime, Content-Disposition sanitizer
       disk.ts              free-space probe + usage% for the disk guard / alert
       notify.ts            best-effort ntfy push (disk alert)
+      ingest.ts            shared validate + commit path for BOTH upload routes
     plugins/
       security.ts          helmet + global rate limit
       sqlite.ts            db decorator, runs migrations + admin seed
@@ -60,7 +62,8 @@ backend/
       health.ts            GET /api/health
       auth.ts              login, TOTP enroll/verify, refresh, logout, csrf, config
       admin.albums.ts      album CRUD, password, expiry, regenerate-uid
-      admin.upload.ts      photo upload + delete
+      admin.upload.ts      batched multipart photo upload + delete
+      admin.uploads.ts     resumable chunked upload (session / parts / complete)
       public.ts            album view, unlock, thumb/photo/download bytes (rate-capped)
     schemas/               TypeBox request schemas (auth, albums, common)
     scripts/
@@ -217,9 +220,41 @@ hasn't been EXIF-stripped yet is never exposed — the metadata guarantee is pre
 even though the strip moved off the request path. The gallery shows a placeholder for
 `pending` photos and polls until they are ready.
 
-The frontend (`UploadZone.tsx`) chunks large drops by total size (~90 MB) and count
-(30) so each request stays under Cloudflare's ~100 MB tunnel body limit and the
-backend's per-request cap.
+The frontend (`UploadZone.tsx`) batches drops by total size (~90 MB) and count (30) so
+each request stays under Cloudflare's ~100 MB tunnel body limit and the backend's
+per-request cap.
+
+### Resumable uploads
+
+Batching solves *many small files*; it cannot solve *one large file*, which no
+arrangement of a single multipart request can squeeze under a ~100 MB body ceiling. So a
+file at or over `MAX_FILE_BYTES` takes a second route (`admin.uploads.ts`) that sends it
+in parts:
+
+1. `POST /api/admin/albums/:uid/uploads` — declare name + size, get back a session id,
+   the part size, and how many parts to send.
+2. `PUT /api/admin/uploads/:id/parts/:n` — one part, raw `application/octet-stream`,
+   streamed straight to disk. Written to `.partial` and renamed into place, so a part
+   file that exists is always complete and re-sending one is idempotent.
+3. `GET /api/admin/uploads/:id` — which parts the server actually holds, so an
+   interrupted upload sends only what is missing.
+4. `POST /api/admin/uploads/:id/complete` — assemble in order, then hand off to the
+   **same** `ingestFiles` validate-and-commit path the batched route uses.
+
+Session state lives in SQLite (`upload_sessions`, `upload_parts`, migration `005`) rather
+than on the filesystem alone, so a resume survives a container restart: the part files are
+the payload, the rows are the record of what was accepted.
+
+**Parts stage in `uploads/`, not `tmp/`** — the boot orphan sweep clears `tmp/` wholesale,
+which would destroy an upload in flight across a restart, and surviving exactly that is
+the point. Abandoned sessions are instead reclaimed by age (`STALE_UPLOAD_MS`, default
+24 h) in the hourly maintenance pass.
+
+Guards: every session lookup is scoped by `owner_id` (an unscoped session id would be an
+IDOR into another admin's upload); part numbers are bounds-checked against the session;
+each part's `Content-Length` must match exactly what that part should be, checked before
+a byte is read; the assembled size must match what was declared; and the disk guard
+accounts for the assembled copy briefly doubling the file on disk.
 
 ## Serving photos
 
