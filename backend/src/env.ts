@@ -22,11 +22,31 @@ const nodeEnv = process.env.NODE_ENV ?? 'production';
 const isProd = nodeEnv === 'production';
 const dataDir = process.env.DATA_DIR ?? '/data';
 
+// Length floor for the three signing keys. The documented `openssl rand -base64 48`
+// yields 64 characters, so this only ever catches a hand-written or truncated key.
+const MIN_SIGNING_SECRET_LEN = 32;
+
 function secret(name: string): string {
   const v = required(name);
   // Guard against shipping the .env.example placeholders to production.
   if (isProd && v.includes('CHANGE_ME')) {
     throw new Error(`Environment variable ${name} still holds a placeholder value`);
+  }
+  return v;
+}
+
+// A cryptographic signing key: the placeholder guard plus a length floor. Kept
+// separate from secret() because ADMIN_PASSWORD goes through that one, and a human
+// password has no business being held to a signing key's length. Production-gated
+// like the placeholder guard, so development and the test harnesses can run on
+// short throwaway values.
+function signingSecret(name: string): string {
+  const v = secret(name);
+  if (isProd && v.length < MIN_SIGNING_SECRET_LEN) {
+    throw new Error(
+      `Environment variable ${name} must be at least ${MIN_SIGNING_SECRET_LEN} characters; ` +
+        'generate one with: openssl rand -base64 48',
+    );
   }
   return v;
 }
@@ -43,9 +63,9 @@ export const env = {
   albumsDir: resolve(dataDir, 'albums'),
   tmpDir: resolve(dataDir, 'tmp'),
   publicOrigin: required('PUBLIC_ORIGIN'),
-  jwtSecret: secret('JWT_SECRET'),
-  csrfSecret: secret('CSRF_SECRET'),
-  cookieSecret: secret('COOKIE_SECRET'),
+  jwtSecret: signingSecret('JWT_SECRET'),
+  csrfSecret: signingSecret('CSRF_SECRET'),
+  cookieSecret: signingSecret('COOKIE_SECRET'),
   adminUsername: required('ADMIN_USERNAME'),
   adminPassword: secret('ADMIN_PASSWORD'),
   maxFileBytes: intEnv('MAX_FILE_BYTES', 52_428_800),

@@ -101,7 +101,8 @@ Essential variables (from [`.env.example`](.env.example)):
 | `NTFY_URL`             | no       | —                    | ntfy topic URL for alerts. Unset ⇒ alerting off. Optional `NTFY_TOKEN`. |
 
 The startup guard refuses to boot in production if any secret still holds a
-`CHANGE_ME` placeholder.
+`CHANGE_ME` placeholder, or if `JWT_SECRET` / `CSRF_SECRET` / `COOKIE_SECRET` is shorter
+than 32 characters (`openssl rand -base64 48` gives 64, well clear of the floor).
 
 ## How it fits together
 

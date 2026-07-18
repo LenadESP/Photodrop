@@ -115,7 +115,8 @@ From `compose.yaml`:
 - Runs as the unprivileged `node` user (uid 1000).
 - Memory and CPU ceilings (`mem_limit`/`memswap_limit` 1500m, `cpus 1.5`).
 - The startup guard refuses to boot in production if a secret still contains a
-  `CHANGE_ME` placeholder (`env.ts`).
+  `CHANGE_ME` placeholder, or if one of the three signing secrets is under 32
+  characters (`env.ts`).
 
 ## Known limitations
 

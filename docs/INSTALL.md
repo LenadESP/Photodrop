@@ -38,7 +38,10 @@ the app at (used for share links and Secure-cookie scoping). Lock the file down:
 chmod 600 .env
 ```
 
-Production boot **fails** if any secret still holds a `CHANGE_ME` placeholder.
+Production boot **fails** if any secret still holds a `CHANGE_ME` placeholder, or if one
+of the three signing secrets is shorter than 32 characters — the commands above produce
+64, comfortably clear. `ADMIN_PASSWORD` is a human password and is not held to that
+floor, but pick a strong one anyway.
 See the [README config table](../README.md#configuration) for every variable.
 
 ## Path (a) — Standalone
