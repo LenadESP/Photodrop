@@ -1,23 +1,12 @@
-import { renameSync, rmSync, statSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import type { Static } from '@sinclair/typebox';
 import { env } from '../env.js';
 import { freeBytes } from '../lib/disk.js';
-import { newStoredFilename } from '../lib/ids.js';
 import { displayDir, originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
-import { probeImage } from '../lib/images.js';
+import { ingestFiles } from '../lib/ingest.js';
 import { UidParams, UidPhotoParams } from '../schemas/common.js';
 import type { AlbumRow, PhotoRow } from '../db/types.js';
-
-interface Prepared {
-  tmpOriginal: string;
-  storedFilename: string;
-  thumbName: string;
-  originalName: string;
-  width: number;
-  height: number;
-  bytes: number;
-}
 
 export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
   const getOwned = (uid: string, ownerId: number): AlbumRow | undefined =>
@@ -60,73 +49,15 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
       const saved = req.savedRequestFiles ?? [];
       if (saved.length === 0) return reply.code(400).send({ error: 'No files uploaded' });
 
-      // Phase A — validate (cheap): magic-byte sniff + header-only dimension read.
-      // Rejects non-images, wrong types, and decompression bombs (declared pixels
-      // vs the cap). Any failure rejects the ENTIRE upload; nothing is persisted.
-      // The full pixel decode — the definitive hostile-image gate — runs in the
-      // background worker, which drops any file that fails it.
-      const prepared: Prepared[] = [];
-      for (const file of saved) {
-        const probe = await probeImage(file.filepath);
-        if (!probe) {
-          return reply.code(415).send({ error: `Unsupported or invalid image: ${file.filename}` });
-        }
-        prepared.push({
-          tmpOriginal: file.filepath,
-          storedFilename: newStoredFilename(probe.kind),
-          thumbName: newStoredFilename('webp'),
-          originalName: file.filename,
-          width: probe.width,
-          height: probe.height,
-          bytes: statSync(file.filepath).size,
-        });
-      }
-
-      // Phase B — commit: atomic same-fs renames of the originals into place,
-      // then one DB txn inserting rows as 'pending'. Thumbnails + EXIF strip
-      // happen in the worker; bytes are NOT served until the row is 'ready', so
-      // an un-stripped original is never exposed.
-      const moved: string[] = [];
-      try {
-        for (const item of prepared) {
-          const finalOriginal = safeJoin(originalsDir(uid), item.storedFilename);
-          renameSync(item.tmpOriginal, finalOriginal);
-          moved.push(finalOriginal);
-        }
-        const insert = app.db.prepare(
-          `INSERT INTO photos
-             (album_uid, stored_filename, original_name, thumb_path, width, height, bytes, thumb_status, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-        );
-        app.db.transaction(() => {
-          const now = Date.now();
-          for (const item of prepared) {
-            insert.run(
-              uid,
-              item.storedFilename,
-              item.originalName,
-              item.thumbName,
-              item.width,
-              item.height,
-              item.bytes,
-              now,
-            );
-          }
-        })();
-      } catch (err) {
-        // Undo any moves so a partial failure persists nothing.
-        for (const p of moved) {
-          try {
-            rmSync(p, { force: true });
-          } catch {
-            /* ignore */
-          }
-        }
-        throw err;
-      }
-
-      app.kickThumbnailer();
-      return reply.code(202).send({ uploaded: prepared.length, pending: true });
+      // Validate + commit via the shared ingest path (same gate the resumable
+      // chunked route uses).
+      const outcome = await ingestFiles(
+        app,
+        uid,
+        saved.map((f) => ({ tmpPath: f.filepath, originalName: f.filename })),
+      );
+      if (!outcome.ok) return reply.code(outcome.status).send({ error: outcome.error });
+      return reply.code(202).send({ uploaded: outcome.count, pending: true });
     },
   );
 

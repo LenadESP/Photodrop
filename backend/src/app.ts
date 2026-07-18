@@ -16,6 +16,7 @@ import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { adminAlbumRoutes } from './routes/admin.albums.js';
 import { adminUploadRoutes } from './routes/admin.upload.js';
+import { adminUploadSessionRoutes } from './routes/admin.uploads.js';
 import { publicRoutes } from './routes/public.js';
 
 // In the container: dist/app.js → ../public holds the built SPA.
@@ -66,6 +67,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authRoutes);
   await app.register(adminAlbumRoutes);
   await app.register(adminUploadRoutes);
+  await app.register(adminUploadSessionRoutes);
   await app.register(publicRoutes);
 
   // Serve the built SPA (present in the image; typically absent in local dev).
