@@ -27,6 +27,36 @@ function isMutation(method: string): boolean {
   return method !== 'GET' && method !== 'HEAD';
 }
 
+let refreshInFlight: Promise<boolean> | null = null;
+
+// Mint a fresh access token from the refresh cookie.
+//
+// The access token lives 15 minutes, which is far shorter than a large upload:
+// 2 GiB over a home uplink runs 15-30 minutes, so the later part requests of an
+// upload routinely outlive the token that authorised the first one. Without this
+// they all 401 and the whole upload fails on exactly the files resumable upload
+// exists for.
+//
+// Concurrent 401s share one refresh instead of stampeding the endpoint — and
+// since refresh rotates the token, parallel refreshes would fight each other.
+async function refreshSession(): Promise<boolean> {
+  refreshInFlight ??= (async () => {
+    try {
+      const res = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'X-CSRF-Token': await ensureCsrf() },
+        credentials: 'include',
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+  return refreshInFlight;
+}
+
 export async function api<T = unknown>(path: string, opts: RequestOptions = {}): Promise<T> {
   const method = opts.method ?? 'GET';
   const headers: Record<string, string> = {};
@@ -51,6 +81,13 @@ export async function api<T = unknown>(path: string, opts: RequestOptions = {}):
   if (res.status === 403 && isMutation(method)) {
     csrfToken = null;
     headers['X-CSRF-Token'] = await ensureCsrf();
+    res = await send();
+  }
+  // The access token may have expired mid-flight. Mint a new one and retry once.
+  // Auth routes are excluded so a dead refresh cookie can't recurse. Blob and
+  // FormData bodies are re-readable, so replaying the request is safe.
+  if (res.status === 401 && !path.startsWith('/api/auth/') && (await refreshSession())) {
+    if (isMutation(method)) headers['X-CSRF-Token'] = await ensureCsrf();
     res = await send();
   }
 
