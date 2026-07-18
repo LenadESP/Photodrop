@@ -15,6 +15,17 @@ interface Photo {
   height: number | null;
   name: string;
   ready: boolean;
+  kind: 'image' | 'video';
+  durationMs: number | null;
+  previewReady: boolean;
+  previewPending: boolean;
+}
+
+function formatDuration(ms: number): string {
+  const total = Math.round(ms / 1000);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 interface AlbumMeta {
   album: { uid: string; title: string };
@@ -54,10 +65,11 @@ export function Gallery() {
     void load();
   }, [load]);
 
-  // While any photo is still being processed, poll until every thumbnail is ready.
+  // Keep polling while anything is still being processed — a thumbnail that
+  // hasn't appeared yet, or a video transcode still queued behind it.
   useEffect(() => {
     if (view !== 'ready' || !meta) return;
-    if (meta.photos.every((p) => p.ready)) return;
+    if (meta.photos.every((p) => p.ready && !p.previewPending)) return;
     const t = setTimeout(() => void load(), 3000);
     return () => clearTimeout(t);
   }, [view, meta, load]);
@@ -190,6 +202,22 @@ export function Gallery() {
                   loading="lazy"
                   className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
                 />
+                {p.kind === 'video' && (
+                  <>
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                      <span className="flex h-11 w-11 items-center justify-center rounded-full bg-black/45 backdrop-blur-sm">
+                        <svg viewBox="0 0 24 24" className="ml-0.5 h-5 w-5 fill-white" aria-hidden="true">
+                          <path d="M8 5v14l11-7z" />
+                        </svg>
+                      </span>
+                    </span>
+                    {p.durationMs != null && p.durationMs > 0 && (
+                      <span className="pointer-events-none absolute bottom-1.5 right-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
+                        {formatDuration(p.durationMs)}
+                      </span>
+                    )}
+                  </>
+                )}
               </button>
             ) : (
               <div

@@ -96,7 +96,13 @@ export function UploadZone({ uid, onUploaded, onError }: Props) {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: { 'image/jpeg': [], 'image/png': [], 'image/webp': [] },
+    accept: {
+      'image/jpeg': [],
+      'image/png': [],
+      'image/webp': [],
+      'video/mp4': [],
+      'video/quicktime': [],
+    },
     disabled: busy,
   });
 
@@ -118,8 +124,8 @@ export function UploadZone({ uid, onUploaded, onError }: Props) {
         </div>
       ) : (
         <>
-          <p className="font-medium">Drop photos here</p>
-          <p className="text-sm text-muted">or click to choose — JPG, PNG, WebP</p>
+          <p className="font-medium">Drop photos or video here</p>
+          <p className="text-sm text-muted">or click to choose — JPG, PNG, WebP, MP4, MOV</p>
         </>
       )}
     </div>

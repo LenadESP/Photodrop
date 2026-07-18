@@ -4,6 +4,8 @@ import { canShareFiles, downloadUrl, fetchAsFile, shareLoadedFiles } from '../li
 export interface LightboxPhoto {
   id: number;
   name: string;
+  kind: 'image' | 'video';
+  previewReady: boolean;
 }
 
 interface Props {
@@ -58,11 +60,13 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [index, photos.length, onClose, onIndex]);
 
-  // Preload the neighbouring display images so swiping paints instantly.
+  // Preload the neighbouring display images so swiping paints instantly. Videos
+  // are skipped — preloading a preview would pull megabytes for something the
+  // viewer may never open, and <video> streams on demand anyway.
   useEffect(() => {
     for (const i of [index + 1, index - 1]) {
       const p = photos[i];
-      if (!p) continue;
+      if (!p || p.kind === 'video') continue;
       const img = new Image();
       img.src = `/api/a/${uid}/display/${p.id}`;
     }
@@ -75,6 +79,10 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
   useEffect(() => {
     const p = photos[index];
     if (!p || !canShareFiles() || originalRef.current?.id === p.id) return;
+    // Never prefetch a video original — they run to hundreds of MB, and pulling
+    // one just because the viewer paused on it would be indefensible on mobile
+    // data. Save fetches on demand for video.
+    if (p.kind === 'video') return;
     // Respect Data Saver — don't background-download full originals on a metered link;
     // Save still works there, it just fetches on demand.
     const conn = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
@@ -113,7 +121,10 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
 
   const onSave = async () => {
     // Desktop / no file-share: straight full-resolution download.
-    if (!canShareFiles()) {
+    // Video takes this path too: a multi-hundred-MB original has no chance of
+    // reaching the share sheet inside the tap's activation window, and the
+    // fallback would be this same download anyway.
+    if (!canShareFiles() || photo.kind === 'video') {
       downloadUrl(downloadHref, photo.name);
       return;
     }
@@ -225,16 +236,46 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
             ‹
           </button>
         )}
-        <img
-          src={`/api/a/${uid}/display/${photo.id}`}
-          alt={photo.name}
-          draggable={false}
-          className="max-h-full max-w-full select-none object-contain"
-          style={{
-            transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
-            transition: dragging ? 'none' : 'transform 150ms ease',
-          }}
-        />
+        {photo.kind === 'video' ? (
+          photo.previewReady ? (
+            <video
+              key={photo.id}
+              src={`/api/a/${uid}/preview/${photo.id}`}
+              poster={`/api/a/${uid}/thumb/${photo.id}`}
+              controls
+              playsInline
+              preload="metadata"
+              className="max-h-full max-w-full select-none object-contain"
+              // The controls own their pointer events; don't let a scrub gesture
+              // register as a swipe to the next item.
+              onPointerDown={(e) => e.stopPropagation()}
+              onPointerUp={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center text-white">
+              <img
+                src={`/api/a/${uid}/thumb/${photo.id}`}
+                alt={photo.name}
+                className="max-h-[50vh] max-w-full rounded-lg object-contain opacity-70"
+              />
+              <p className="text-sm text-white/70">
+                This video is still being prepared for playback. You can download the
+                full-resolution original now.
+              </p>
+            </div>
+          )
+        ) : (
+          <img
+            src={`/api/a/${uid}/display/${photo.id}`}
+            alt={photo.name}
+            draggable={false}
+            className="max-h-full max-w-full select-none object-contain"
+            style={{
+              transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
+              transition: dragging ? 'none' : 'transform 150ms ease',
+            }}
+          />
+        )}
         {index < photos.length - 1 && !zoomed && (
           <button
             aria-label="Next"
@@ -249,7 +290,8 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
         )}
       </div>
 
-      <div className="flex items-center justify-center gap-2 p-4">
+      {/* Zoom is an image affordance; a video has its own controls. */}
+      <div className={`flex items-center justify-center gap-2 p-4 ${photo.kind === 'video' ? 'invisible' : ''}`}>
         <button aria-label="Zoom out" className={iconBtn} onClick={zoomOut} disabled={zoom <= MIN_ZOOM}>
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M5 12h14" />
