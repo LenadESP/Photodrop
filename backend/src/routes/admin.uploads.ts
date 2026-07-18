@@ -1,4 +1,5 @@
 import { createReadStream, createWriteStream, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { once } from 'node:events';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { FastifyInstance } from 'fastify';
@@ -130,13 +131,22 @@ export async function adminUploadSessionRoutes(app: FastifyInstance): Promise<vo
         ? session.total_bytes - session.part_size * (session.total_parts - 1)
         : session.part_size;
 
+      // Check the declared length BEFORE reading a byte. Rejecting up front costs
+      // no disk I/O, and it avoids tearing down a half-read body: aborting a
+      // request mid-stream leaves the unread remainder in the socket and the
+      // request never settles. Node's HTTP parser holds the body to
+      // Content-Length, so agreeing on it here bounds what can actually arrive.
+      const declared = Number(req.headers['content-length']);
+      if (!Number.isInteger(declared) || declared !== expected) {
+        return reply.code(400).send({ error: `Part must be exactly ${expected} bytes` });
+      }
+
       const destination = uploadPartPath(session.id, part);
       const partial = `${destination}.partial`;
       let written = 0;
       try {
-        // Count as the bytes flow and abort the moment the part overruns, so an
-        // oversized body is cut off mid-stream rather than after it has all
-        // landed on disk.
+        // Backstop: with Content-Length agreed above this cannot trip, but it
+        // keeps the byte count honest if that ever stops being true.
         const limiter = new Transform({
           transform(chunk: Buffer, _encoding, callback) {
             written += chunk.length;
@@ -201,15 +211,22 @@ export async function adminUploadSessionRoutes(app: FastifyInstance): Promise<vo
       // Assemble into tmp/ (swept on boot, so a crash here leaks nothing) by
       // streaming each part in order — the whole file is never held in memory.
       const assembled = safeJoin(env.tmpDir, newStoredFilename('upload'));
+      const out = createWriteStream(assembled);
       try {
-        const out = createWriteStream(assembled);
+        // Write the parts through one stream, respecting backpressure. Deliberately
+        // NOT pipeline-per-part into a shared stream: that attaches a fresh set of
+        // error/close listeners to `out` for every part, which leaks them and warns
+        // past ten — a 2 GiB file is 256 parts.
         for (let i = 0; i < session.total_parts; i += 1) {
-          await pipeline(createReadStream(uploadPartPath(session.id, i)), out, { end: false });
+          for await (const chunk of createReadStream(uploadPartPath(session.id, i))) {
+            if (!out.write(chunk as Buffer)) await once(out, 'drain');
+          }
         }
         await new Promise<void>((resolve, reject) => {
           out.end((err?: NodeJS.ErrnoException | null) => (err ? reject(err) : resolve()));
         });
       } catch (err) {
+        out.destroy();
         rmSync(assembled, { force: true });
         app.log.error({ err, sessionId: session.id }, 'upload: assembly failed');
         return reply.code(500).send({ error: 'Failed to assemble upload' });
