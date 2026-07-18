@@ -5,11 +5,41 @@ import type { Static } from '@sinclair/typebox';
 import { verifySecret } from '../lib/hash.js';
 import { ACCESS_COOKIE, albumCookie, albumCookieOpts } from '../lib/cookies.js';
 import type { AccessClaims } from '../plugins/auth.js';
-import { displayDir, originalsDir, safeJoin, thumbsDir } from '../lib/paths.js';
+import { displayDir, originalsDir, previewDir, safeJoin, thumbsDir } from '../lib/paths.js';
 import { extToMime, sanitizeDownloadName } from '../lib/mime.js';
 import { UidParams, UidPhotoParams } from '../schemas/common.js';
 import { UnlockBody } from '../schemas/albums.js';
 import type { AlbumRow, PhotoRow } from '../db/types.js';
+
+// Parse a single byte range. `bytes=a-b`, `bytes=a-` and `bytes=-n` are handled;
+// a multi-range request is legal HTTP but nothing needs it for media playback, so
+// it falls through to serving the whole file rather than being answered wrongly.
+function parseRange(
+  header: string | undefined,
+  size: number,
+): { start: number; end: number } | 'unsatisfiable' | null {
+  if (!header) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match) return null;
+  const [, rawStart, rawEnd] = match;
+  if (rawStart === '' && rawEnd === '') return 'unsatisfiable';
+
+  let start: number;
+  let end: number;
+  if (rawStart === '') {
+    // Suffix form: the last N bytes.
+    const n = Number(rawEnd);
+    if (!Number.isFinite(n) || n <= 0) return 'unsatisfiable';
+    start = Math.max(0, size - n);
+    end = size - 1;
+  } else {
+    start = Number(rawStart);
+    end = rawEnd === '' ? size - 1 : Number(rawEnd);
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 'unsatisfiable';
+  if (start > end || start >= size) return 'unsatisfiable';
+  return { start, end: Math.min(end, size - 1) };
+}
 
 export async function publicRoutes(app: FastifyInstance): Promise<void> {
   const getAlbum = (uid: string): AlbumRow | undefined => {
@@ -109,11 +139,31 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
           ? 'public, max-age=31536000, immutable'
           : 'private, max-age=3600',
     );
+    // Byte ranges are what make <video> work: Safari and iOS refuse to play a
+    // source that doesn't advertise them, and seeking is broken everywhere else
+    // without them. Advertised on every file — a ranged request for an image is
+    // just as valid, and a client that asks for one deserves an honest answer.
+    reply.header('Accept-Ranges', 'bytes');
     if (req.headers['if-none-match'] === etag) return reply.code(304).send();
-    reply.header('Content-Length', stat.size);
     if (opts.downloadName) {
       reply.header('Content-Disposition', `attachment; filename="${opts.downloadName}"`);
     }
+
+    const range = parseRange(req.headers.range, stat.size);
+    if (range === 'unsatisfiable') {
+      reply.header('Content-Range', `bytes */${stat.size}`);
+      return reply.code(416).send({ error: 'Range not satisfiable' });
+    }
+    if (range) {
+      reply.code(206);
+      reply.header('Content-Range', `bytes ${range.start}-${range.end}/${stat.size}`);
+      reply.header('Content-Length', range.end - range.start + 1);
+      return reply
+        .type(mime)
+        .send(createReadStream(filePath, { start: range.start, end: range.end }));
+    }
+
+    reply.header('Content-Length', stat.size);
     return reply.type(mime).send(createReadStream(filePath));
   }
 
@@ -153,9 +203,19 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
 
     const photos = app.db
       .prepare(
-        'SELECT id, width, height, original_name, thumb_status FROM photos WHERE album_uid = ? ORDER BY created_at, id',
+        'SELECT id, width, height, original_name, thumb_status, kind, duration_ms, preview_status FROM photos WHERE album_uid = ? ORDER BY created_at, id',
       )
-      .all(uid) as Pick<PhotoRow, 'id' | 'width' | 'height' | 'original_name' | 'thumb_status'>[];
+      .all(uid) as Pick<
+      PhotoRow,
+      | 'id'
+      | 'width'
+      | 'height'
+      | 'original_name'
+      | 'thumb_status'
+      | 'kind'
+      | 'duration_ms'
+      | 'preview_status'
+    >[];
 
     return {
       album: { uid: album.uid, title: album.title },
@@ -165,8 +225,14 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
         height: p.height,
         name: p.original_name,
         // Bytes aren't servable until the worker finishes; the client shows a
-        // placeholder for not-yet-ready photos and polls.
+        // placeholder for not-yet-ready items and polls.
         ready: p.thumb_status === 'ready',
+        kind: p.kind,
+        durationMs: p.duration_ms,
+        // A video whose transcode is still queued (or failed) has no playable
+        // preview; the client offers the full-resolution download instead.
+        previewReady: p.preview_status === 'ready',
+        previewPending: p.preview_status === 'pending',
       })),
     };
   });
@@ -192,6 +258,10 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
     const photo = getReadyPhoto(uid, id);
     if (!photo) return reply.code(404).send({ error: 'Not found' });
+    // Video has no display derivative, and must not reach the original-fallback
+    // below — that would stream a multi-GB file to something expecting a preview
+    // image. Videos use /preview for playback and /thumb for the poster.
+    if (photo.kind === 'video') return reply.code(404).send({ error: 'Not found' });
     const cacheable = album.is_public === 1;
     const displayPath = safeJoin(displayDir(uid), photo.thumb_path);
     if (existsSync(displayPath)) {
@@ -200,6 +270,23 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const original = safeJoin(originalsDir(uid), photo.stored_filename);
     // Pre-derivative fallback: never immutable — backfill-display supersedes it.
     return sendImage(req, reply, original, extToMime(photo.stored_filename), { revalidate: true });
+  });
+
+  // ── Video playback derivative (inline) ────────────────────────────────────
+  // The bitrate-capped 1080p/24fps transcode, for on-screen playback only. Every
+  // save, download and zip path serves the ORIGINAL — this is never delivered as
+  // the file the viewer keeps.
+  app.get('/api/a/:uid/preview/:id', { schema: { params: UidPhotoParams } }, async (req, reply) => {
+    const { uid, id } = req.params as Static<typeof UidPhotoParams>;
+    const album = getAlbum(uid);
+    if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
+    const photo = getReadyPhoto(uid, id);
+    if (!photo || photo.kind !== 'video' || photo.preview_status !== 'ready') {
+      return reply.code(404).send({ error: 'Not found' });
+    }
+    return sendImage(req, reply, safeJoin(previewDir(uid), `${photo.id}.mp4`), 'video/mp4', {
+      cacheable: album.is_public === 1,
+    });
   });
 
   // ── Full-quality original (inline) ────────────────────────────────────────
