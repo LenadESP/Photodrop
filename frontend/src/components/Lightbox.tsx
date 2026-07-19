@@ -6,6 +6,10 @@ export interface LightboxPhoto {
   name: string;
   kind: 'image' | 'video';
   previewReady: boolean;
+  // Distinguishes "queued, will appear" from "no preview is coming". Both leave
+  // previewReady false, but only one of them is worth waiting for, and a source
+  // too expensive to transcode never becomes ready.
+  previewPending: boolean;
 }
 
 interface Props {
@@ -259,8 +263,9 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
                 className="max-h-[50vh] max-w-full rounded-lg object-contain opacity-70"
               />
               <p className="text-sm text-white/70">
-                This video is still being prepared for playback. You can download the
-                full-resolution original now.
+                {photo.previewPending
+                  ? 'This video is still being prepared for playback. You can download the full-resolution original now.'
+                  : 'This video is too large to preview in the browser. Download the full-resolution original to watch it.'}
               </p>
             </div>
           )
