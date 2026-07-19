@@ -2,6 +2,47 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.5.1] — 2026-07-19 — preview cost budget
+
+Polish on 1.5.0's video support, from measuring the transcode on the real host for
+the first time. No migration, no schema change, no change to how originals are
+stored or served.
+
+### Changed
+
+- **A preview transcode that cannot finish is now refused before it starts.**
+  Measured on this hardware, 6K 10-bit 60fps runs at ~0.079× realtime and about 78%
+  of that is decode — which downscaling cannot avoid, since every frame is decoded at
+  full resolution before the scaler sees it. A five-minute 6K clip therefore needs
+  roughly 64 minutes and would exceed the old flat one-hour ffmpeg timeout anyway,
+  after occupying the single transcode slot for the whole hour and leaving any photo
+  uploaded meanwhile sitting `pending` — and a `pending` photo is not served at all.
+  `makePreview` now estimates cost from source pixels × frame rate × duration and
+  declines anything over a twenty-minute budget. The outcome for the viewer is
+  unchanged — the original, at full resolution, with no in-browser preview — without
+  the wasted hour. The ffmpeg timeout is now derived from that budget rather than flat.
+- **The lightbox distinguishes "queued" from "no preview is coming".** `previewReady`
+  is false in both cases, and the copy previously promised that every such video was
+  "still being prepared for playback". With the budget in place that is the normal
+  outcome for large sources, so the message now tells the viewer to download the
+  original when no preview will arrive. Uses the `previewPending` flag the API already
+  exposed; polling already keyed off it and was unaffected.
+
+### Added
+
+- **The verification harnesses now live in the repo** under `test/`, run by
+  `./test/run.sh [image] [auth|upload|video]` — 91 assertions across auth hardening,
+  resumable upload and the video pipeline. They previously lived in `/tmp` on the host.
+  Each run is a one-shot `docker run --rm` against a built image, so nothing is left
+  behind; they are not run automatically and are not a substitute for a test suite.
+
+### Notes
+
+- Memory was never the constraint on this hardware: peak was 596 MB against the
+  container's 1500 MB ceiling. The throughput constant is calibrated on 10-bit HEVC,
+  the most expensive codec to decode, so lighter sources are over-estimated and the
+  guard errs toward protecting the box.
+
 ## [1.5.0] — 2026-07-18 — video
 
 Video alongside photos, on the same pipeline. Migration `006` runs automatically;
