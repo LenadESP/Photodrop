@@ -195,6 +195,46 @@ const del = await req('DELETE', `/api/admin/albums/${uid}/photos/${done.id}`);
 check('T9c delete succeeds', del.statusCode === 200, del.body);
 check('T9d delete removes the preview file too', !existsSync(previewPath));
 
+// ── T10 preview cost budget ───────────────────────────────────────────────
+// Measured on this box: 6K 10-bit 60fps transcodes at ~0.079x realtime, so a
+// 5-minute clip needs ~64 min. The old code had a flat 1-hour ffmpeg timeout,
+// which meant such a source occupied the single transcode slot for a full hour
+// and then failed anyway — while newly-uploaded photos sat `pending`, and a
+// pending photo is not served at all. The budget refuses that work up front.
+const { estimatePreviewSeconds, PreviewTooExpensiveError } = await import('/app/dist/lib/video.js');
+const BUDGET = 20 * 60;
+
+const realProbe = await (await import('/app/dist/lib/video.js')).probeVideo(src);
+check(
+  'T10a the test clip is estimated well under budget',
+  estimatePreviewSeconds(realProbe) < BUDGET,
+  `${estimatePreviewSeconds(realProbe).toFixed(1)}s`,
+);
+
+const bigSource = { width: 6144, height: 3456, fps: 60, durationMs: 5 * 60 * 1000 };
+check(
+  'T10b a 5-min 6K60 source is refused before any work starts',
+  estimatePreviewSeconds(bigSource) > BUDGET,
+  `${(estimatePreviewSeconds(bigSource) / 60).toFixed(1)} min estimated`,
+);
+
+// The guard must not over-reject ordinary footage — 10 minutes of 1080p30 is
+// well within what this box can actually chew through.
+const normalSource = { width: 1920, height: 1080, fps: 30, durationMs: 10 * 60 * 1000 };
+check(
+  'T10c 10 min of 1080p30 stays under budget (no over-rejection)',
+  estimatePreviewSeconds(normalSource) < BUDGET,
+  `${(estimatePreviewSeconds(normalSource) / 60).toFixed(1)} min estimated`,
+);
+
+check(
+  'T10d an unknown frame rate does not read as free',
+  estimatePreviewSeconds({ ...bigSource, fps: 30 }) > BUDGET,
+  'a missing r_frame_rate must fall back to a real rate, not 0',
+);
+
+check('T10e PreviewTooExpensiveError is exported for the worker to distinguish', typeof PreviewTooExpensiveError === 'function');
+
 await app.close();
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

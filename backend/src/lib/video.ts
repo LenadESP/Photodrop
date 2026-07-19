@@ -23,6 +23,35 @@ const POSTER_SIZE = 480;
 const THREADS = '1';
 const PRESET = 'veryfast';
 
+// Measured on this box (6144x3456 10-bit HEVC, 60fps): the pipeline chews
+// through roughly 98 megapixels of SOURCE video per second, and ~78% of that
+// cost is decode, which the downscale cannot avoid — every frame is decoded at
+// full resolution before the scaler ever sees it. So the cost of a preview
+// tracks source pixels x fps x duration, NOT the 1080p output size.
+const THROUGHPUT_MP_PER_SEC = 98;
+
+// The most wall-clock one preview may cost. Past this we do not start at all:
+// a 5-minute 6K60 clip needs ~64 min, so the old behaviour was to occupy a core
+// for a full hour and then fail on timeout anyway. Failing immediately produces
+// the same outcome for the viewer (original served at full resolution, no
+// preview) without the wasted hour — and without the thumbnail queue, which is
+// priority-at-pickup rather than preemptive, stalling behind it.
+const PREVIEW_BUDGET_SEC = 20 * 60;
+
+export class PreviewTooExpensiveError extends Error {
+  constructor(estimateSec: number) {
+    super(`preview would need ~${Math.round(estimateSec / 60)} min, over the ${PREVIEW_BUDGET_SEC / 60} min budget`);
+    this.name = 'PreviewTooExpensiveError';
+  }
+}
+
+// Seconds of wall-clock this source is expected to cost, from the measured
+// throughput above. Deliberately based on the SOURCE dimensions and frame rate.
+export function estimatePreviewSeconds(probe: Pick<VideoProbe, 'width' | 'height' | 'fps' | 'durationMs'>): number {
+  const megapixels = (probe.width * probe.height) / 1_000_000;
+  return (megapixels * probe.fps * (probe.durationMs / 1000)) / THROUGHPUT_MP_PER_SEC;
+}
+
 // ffmpeg writes scratch data next to its output. That MUST be the data volume:
 // /tmp in this container is a tmpfs, i.e. RAM counted against the 1500m ceiling,
 // and a few hundred MB of transcode scratch there would OOM-kill the process.
@@ -53,6 +82,7 @@ export interface VideoProbe {
   kind: VideoKind;
   width: number;
   height: number;
+  fps: number;
   durationMs: number;
   hasAudio: boolean;
 }
@@ -61,7 +91,21 @@ interface FfprobeStream {
   codec_type?: string;
   width?: number;
   height?: number;
+  r_frame_rate?: string;
   side_data_list?: { rotation?: number }[];
+}
+
+// ffprobe reports the frame rate as a rational string ("60/1", "30000/1001").
+// Falls back to 30 rather than 0 — an unknown rate must not make an expensive
+// source look free to the budget check below.
+function parseFps(raw: string | undefined): number {
+  if (!raw) return 30;
+  const parts = raw.split('/');
+  const num = Number(parts[0]);
+  const den = parts.length > 1 ? Number(parts[1]) : 1;
+  if (!Number.isFinite(num) || !Number.isFinite(den) || den === 0) return 30;
+  const fps = num / den;
+  return Number.isFinite(fps) && fps > 0 ? fps : 30;
 }
 
 // Cheap ingest gate: magic bytes, then an ffprobe header read for a real video
@@ -102,6 +146,7 @@ export async function probeVideo(filePath: string): Promise<VideoProbe | null> {
     kind,
     width: swap ? rawH : rawW,
     height: swap ? rawW : rawH,
+    fps: parseFps(video.r_frame_rate),
     durationMs: Number.isFinite(durationSec) ? Math.round(durationSec * 1000) : 0,
     hasAudio: streams.some((s) => s.codec_type === 'audio'),
   };
@@ -142,6 +187,16 @@ export async function makePoster(srcPath: string, destPath: string, durationMs: 
 // Written to a temp file and renamed into place, so a crash or a kill mid-
 // transcode can never leave a truncated preview that would still be served.
 export async function makePreview(srcPath: string, destPath: string): Promise<void> {
+  // Refuse work that cannot finish before starting it. Without this a long 6K
+  // source occupies the single transcode slot for the full timeout and then
+  // fails anyway, while newly-uploaded photos sit `pending` — and a pending
+  // photo is not served at all.
+  const probe = await probeVideo(srcPath);
+  if (probe) {
+    const estimate = estimatePreviewSeconds(probe);
+    if (estimate > PREVIEW_BUDGET_SEC) throw new PreviewTooExpensiveError(estimate);
+  }
+
   const temp = `${destPath}.tmp`;
   try {
     await run(
@@ -167,7 +222,10 @@ export async function makePreview(srcPath: string, destPath: string): Promise<vo
         '-f', 'mp4',
         temp,
       ],
-      { env: ffmpegEnv, maxBuffer: 8 * 1024 * 1024, timeout: 60 * 60_000 },
+      // Backstop only — the budget check above is the real bound. Sized at
+      // 1.5x the budget so a source the estimate merely underrates still
+      // finishes, while a pathological one cannot run for an hour.
+      { env: ffmpegEnv, maxBuffer: 8 * 1024 * 1024, timeout: Math.round(PREVIEW_BUDGET_SEC * 1.5) * 1000 },
     );
     await rename(temp, destPath);
   } catch (err) {
