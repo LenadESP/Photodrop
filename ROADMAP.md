@@ -4,14 +4,17 @@ Direction, not a commitment. Single-maintainer project; items land when they lan
 The V1 schema was deliberately shaped so the big multi-tenant item stays additive.
 
 Shipped items live in [CHANGELOG.md](https://github.com/LenadESP/Photodrop/blob/main/CHANGELOG.md).
-Everything through **1.5.0** is shipped: reliability & delivery (1.1.0), the polish /
+Everything through **1.5.2** is shipped: reliability & delivery (1.1.0), the polish /
 mobile / lifecycle line (1.1.3–1.1.5), the security-hardening tranche (1.2.0 —
 configurable proxy-trust, bulk-endpoint rate caps, TOTP replay protection, session
 revocation), the download UX (1.3.0 — explicit picker + reliable single-photo
 full-resolution save; 1.3.1 — phone "download all" as direct per-file downloads), both
 halves of the v1.3.1 audit (1.3.2 documentation, 1.3.3 auth hardening), resumable
-chunked upload (1.4.0, +1.4.1 so a long upload survives its session), and video
-(1.5.0 — MP4/MOV, poster frames, capped 1080p/24fps previews, byte-range serving).
+chunked upload (1.4.0, +1.4.1 so a long upload survives its session), video
+(1.5.0 — MP4/MOV, poster frames, capped 1080p/24fps previews, byte-range serving), a
+preview cost budget so an over-large transcode is declined rather than run for an hour
+(1.5.1), and acceptance of professional-camera video whose standard brand is only a
+compatible brand — Sony XAVC-S (1.5.2).
 
 Notation: `x.Y.0` = features, `x.x.Y` = fixes/polish.
 

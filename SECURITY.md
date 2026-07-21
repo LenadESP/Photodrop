@@ -76,8 +76,12 @@ runs on untrusted image bytes).
 - **Magic-byte validation.** File type is determined from the first bytes, not the
   extension or the multipart mimetype (both attacker-controlled). Only JPEG, PNG and
   WebP pass as images; SVG/XML can never match (`lib/images.ts`). Video is identified
-  from the ISO base-media `ftyp` box and its major brand — MP4 and MOV only — then
-  validated by `ffprobe` before anything is persisted (`lib/video.ts`).
+  from the ISO base-media `ftyp` box — its major brand *or any compatible brand*, so a
+  camera's vendor brand (e.g. Sony's `XAVC`) is accepted on the standard brand it lists
+  as compatible — MP4 and MOV only, then validated by `ffprobe` before anything is
+  persisted (`lib/video.ts`). The brand check is a cheap pre-filter, not the security
+  boundary: `ffprobe` and the worker's full decode are the gates that a file must
+  actually be a video to pass.
 - **Two-stage decode gate.** Ingest runs a cheap header check (`probeImage`: magic bytes
   + a header-only `sharp().metadata()` read), which rejects non-images, wrong types, and
   — via declared dimensions vs `limitInputPixels`/`MAX_IMAGE_PIXELS` (default 50 MP) — a

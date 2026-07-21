@@ -40,8 +40,7 @@ Notes:
 
 ## Build / checks
 
-There is **no separate lint step and no test suite yet** (`npm test` is not defined).
-The type checker is the gate:
+There is **no `npm test` and no CI yet**. The type checker is the first gate:
 
 ```bash
 # Backend: compiles with tsc (strict), copies migrations into dist
@@ -51,8 +50,17 @@ cd backend && npm run build
 cd frontend && npm run build     # tsc --noEmit && vite build
 ```
 
-Run both before opening a PR — a green `build` in each package is the bar. If you add
-tests, wire an `npm test` script and mention it in the PR.
+Run both before opening a PR — a green `build` in each package is the bar.
+
+There are also **verification harnesses** under [`test/`](test/), run against a built
+image by `./test/run.sh [image] [auth|upload|video]`. They boot the real app from the
+image's `dist/` and drive real routes in-process (fastify `inject()`), covering auth
+hardening, resumable upload and the video pipeline — including the properties that are
+easy to regress silently (download serves the original not the preview, metadata is
+stripped, a photo thumbnail is processed before a video transcode). Each run is a
+one-shot `docker run --rm`. They are not wired to `npm test` and are not automated; run
+them by hand when touching those areas, and add assertions when you change that
+behaviour.
 
 ## Conventions
 

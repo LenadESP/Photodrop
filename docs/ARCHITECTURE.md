@@ -46,7 +46,8 @@ backend/
       ids.ts               nanoid album uids, random stored filenames
       paths.ts             album path builders + safeJoin traversal guard
       images.ts            magic-byte sniff + sharp decode/thumbnail gate
-      video.ts             ftyp sniff + ffprobe gate, poster frame, preview transcode
+      video.ts             ftyp sniff (major+compatible brands) + ffprobe gate, poster
+                           frame, preview transcode + cost budget
       exif.ts              exiftool-vendored lossless metadata strip
       mime.ts              ext→mime, Content-Disposition sanitizer
       disk.ts              free-space probe + usage% for the disk guard / alert
@@ -266,6 +267,15 @@ Video rides the same pipeline as photos rather than a parallel one. Ingest sniff
 ISO base-media `ftyp` box (never the extension or the client mimetype) and runs `ffprobe`
 as the cheap header gate — the analogue of `probeImage`. MP4 and MOV are accepted.
 
+A file is accepted on the strength of its **major brand or any of its compatible
+brands** (ISO/IEC 14496-12 §4.3): a professional camera declares a vendor major brand —
+Sony XAVC-S writes `XAVC` — while listing the standard brand it conforms to (`mp42`,
+`iso2`, …) among the compatible brands. Reading only the major brand rejected those
+files even though they announce standard compatibility one field over. The sniff reads
+the whole `ftyp` box, bounded to 512 bytes so a hostile declared size cannot make it
+over-read. This is only a cheap pre-filter; `ffprobe` and the worker's full decode are
+the real validators, so widening the accepted brands never lets a non-video through.
+
 The worker handles a video in **two stages, with different consequences**:
 
 1. **Metadata strip + poster frame — both must succeed.** These are what make the file
@@ -279,6 +289,17 @@ The worker handles a video in **two stages, with different consequences**:
    with `+faststart`, written atomically (temp + rename). If it fails, `preview_status`
    goes to `failed` and the original is still delivered at full resolution — it just
    can't be played in the browser.
+
+   **Cost budget.** Decode dominates and downscaling cannot avoid it — every frame is
+   decoded at full resolution before the scaler runs — so the transcode cost tracks
+   *source* pixels × frame rate × duration, not the 1080p output size. Measured on this
+   hardware (a 2017 dual-core), 6K 10-bit 60fps runs at ~0.08× realtime, so a five-minute
+   clip would need about an hour. `makePreview` estimates the cost up front from the
+   probed dimensions and frame rate and, if it exceeds a budget (20 minutes of wall
+   clock), declines before starting: `preview_status='failed'`, original served at full
+   resolution, no core occupied for an hour and no photo left queued behind it. The
+   ffmpeg timeout is derived from that budget as a backstop. Memory is not the
+   constraint — a 6K transcode peaks around 600 MB against the 1500m ceiling.
 
 **Queue priority.** `thumb_status='pending'` (photo thumbnails and video posters) is
 drained completely before any `preview_status='pending'` transcode, and re-checked after

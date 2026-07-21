@@ -22,9 +22,12 @@ Put the file at docs/media/demo.gif and reference it as:
   served. Plus a public/private toggle.
 - **Gallery** — responsive thumbnail grid, full-screen lightbox with zoom + drag-to-pan,
   download-one, and "Save to Photos" via the mobile share sheet.
-- **Video** — MP4/MOV alongside photos, with a poster-frame thumbnail and an in-browser
-  preview (1080p, 24fps, bitrate-capped) generated once at upload. Downloads are always
-  the untouched original.
+- **Video** — MP4/MOV alongside photos (including professional-camera formats such as
+  Sony XAVC-S), with a poster-frame thumbnail and an in-browser preview (1080p, 24fps,
+  bitrate-capped) generated once at upload. A very large source — high-resolution,
+  high-frame-rate footage that would take too long to transcode on modest hardware — is
+  kept and served download-only rather than given a preview. Downloads are always the
+  full-resolution original.
 - **Download all** — every full-resolution original saved to the device as individual
   downloads, or the whole album as one streamed zip. Both are offered on phone and
   desktop alike; always the originals, never a re-encode.
