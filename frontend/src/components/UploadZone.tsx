@@ -96,12 +96,16 @@ export function UploadZone({ uid, onUploaded, onError }: Props) {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
+    // Match on extension as well as MIME type. The browser derives a file's type
+    // from its extension, and for some camera files (Sony XAVC .MP4) it reports
+    // an empty type — which matches no MIME key and would drop the file silently
+    // before it is ever sent. Listing the extensions accepts it regardless.
     accept: {
-      'image/jpeg': [],
-      'image/png': [],
-      'image/webp': [],
-      'video/mp4': [],
-      'video/quicktime': [],
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp'],
+      'video/mp4': ['.mp4', '.m4v'],
+      'video/quicktime': ['.mov'],
     },
     disabled: busy,
   });
