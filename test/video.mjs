@@ -1,7 +1,7 @@
 // Verification harness for photodrop 1.5.0 (video support).
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { existsSync, statSync, copyFileSync } from 'node:fs';
+import { existsSync, statSync, copyFileSync, writeFileSync } from 'node:fs';
 import { buildApp } from '/app/dist/app.js';
 import { ensureDataDirs, originalsDir, previewDir, thumbsDir, safeJoin } from '/app/dist/lib/paths.js';
 import sharp from 'sharp';
@@ -86,6 +86,32 @@ const fake = await ingestFiles(app, uid, [{ tmpPath: '/data/tmp/fake.mp4', origi
 check('T2d a non-video named .mp4 is refused (magic bytes, not the name)',
   !fake.ok && fake.status === 415, JSON.stringify(fake));
 
+// ── T2e/f brand sniff reads the compatible-brands list, not just the major ──
+// A Sony XAVC file declares a vendor major brand with standard brands listed as
+// compatible; it must be accepted. A genuinely unknown-only brand must not be.
+const { sniffVideoKind } = await import('/app/dist/lib/video.js');
+const ftyp = (major, compat) => {
+  const brands = [major, ...compat];
+  const size = 16 + compat.length * 4; // 4 size + 4 'ftyp' + 4 major + 4 minor + compat
+  const b = Buffer.alloc(size);
+  b.writeUInt32BE(size, 0);
+  b.write('ftyp', 4, 'latin1');
+  b.write(major, 8, 'latin1');
+  b.writeUInt32BE(0, 12); // minor version
+  compat.forEach((c, i) => b.write(c, 16 + i * 4, 'latin1'));
+  void brands;
+  return b;
+};
+writeFileSync('/data/tmp/xavc.mp4', ftyp('XAVC', ['XAVC', 'mp42', 'iso2']));
+check('T2e a Sony XAVC major brand is accepted via its compatible brands',
+  (await sniffVideoKind('/data/tmp/xavc.mp4')) === 'mp4', 'XAVC/mp42/iso2 should sniff as mp4');
+writeFileSync('/data/tmp/qt.mov', ftyp('qt  ', []));
+check('T2f a QuickTime major brand still sniffs as mov',
+  (await sniffVideoKind('/data/tmp/qt.mov')) === 'mov');
+writeFileSync('/data/tmp/bogus.mp4', ftyp('ZZZZ', ['WXYZ']));
+check('T2g an unrecognised-only brand is still refused',
+  (await sniffVideoKind('/data/tmp/bogus.mp4')) === null, 'no known brand should sniff as null');
+
 // ── T3 worker: poster, then preview ───────────────────────────────────────
 app.kickThumbnailer();
 for (let i = 0; i < 120; i += 1) {
@@ -162,7 +188,6 @@ check('T7 listing reports kind/duration/previewReady',
 app.db.prepare("UPDATE photos SET preview_status = 'pending' WHERE id = ?").run(done.id);
 const jpeg = await sharp({ create: { width: 800, height: 600, channels: 3, background: { r: 10, g: 200, b: 90 } } })
   .jpeg().toBuffer();
-const { writeFileSync } = await import('node:fs');
 writeFileSync('/data/tmp/photo.jpg', jpeg);
 await ingestFiles(app, uid, [{ tmpPath: '/data/tmp/photo.jpg', originalName: 'photo.jpg' }]);
 const photoRow = app.db.prepare("SELECT * FROM photos WHERE album_uid = ? AND kind = 'image' ORDER BY id DESC LIMIT 1").get(uid);

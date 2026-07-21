@@ -57,22 +57,47 @@ export function estimatePreviewSeconds(probe: Pick<VideoProbe, 'width' | 'height
 // and a few hundred MB of transcode scratch there would OOM-kill the process.
 const ffmpegEnv = { ...process.env, TMPDIR: env.tmpDir };
 
+// Brands we treat as an MP4-family container. This is a cheap pre-filter, not the
+// security boundary: ffprobe and then the worker's full decode are the real gates,
+// and they run regardless of what the brand claims.
+const MP4_BRANDS = new Set(['isom', 'iso2', 'iso4', 'iso5', 'iso6', 'mp41', 'mp42', 'avc1', 'mp4v', 'M4V ', 'dash']);
+
 // Real type from the ISO base-media `ftyp` box, never the extension or the
-// client-supplied mimetype. Bytes 4..8 are the box type; the four after it are
-// the major brand.
+// client-supplied mimetype. The box is: 4-byte size, `ftyp`, 4-byte MAJOR brand,
+// 4-byte minor version, then zero or more 4-byte COMPATIBLE brands.
+//
+// A file must be accepted on the strength of the major brand OR any compatible
+// brand (ISO/IEC 14496-12 §4.3): a professional camera declares a vendor major
+// brand — Sony XAVC writes `XAVC` — while listing the standard brand it conforms
+// to (`mp42`, `iso2`, …) among the compatible brands. Reading only the major
+// brand rejected those files even though they announce standard compatibility one
+// field over.
 export async function sniffVideoKind(filePath: string): Promise<VideoKind | null> {
   const fh = await open(filePath, 'r');
   try {
-    const buf = Buffer.alloc(12);
-    const { bytesRead } = await fh.read(buf, 0, 12, 0);
-    if (bytesRead < 12) return null;
+    // The declared box size bounds how many compatible brands there are. Read a
+    // fixed, small window and never trust the size past it — a hostile `ftyp`
+    // cannot make us read or allocate arbitrarily. A real ftyp box is tens of
+    // bytes; 512 covers any legitimate brand list many times over.
+    const buf = Buffer.alloc(512);
+    const { bytesRead } = await fh.read(buf, 0, 512, 0);
+    if (bytesRead < 16) return null;
     if (buf.subarray(4, 8).toString('latin1') !== 'ftyp') return null;
-    const brand = buf.subarray(8, 12).toString('latin1');
-    if (brand === 'qt  ') return 'mov';
-    // Everything else we accept is an MP4 flavour; anything unrecognised is
-    // refused rather than guessed at.
-    const mp4Brands = ['isom', 'iso2', 'iso4', 'iso5', 'iso6', 'mp41', 'mp42', 'avc1', 'mp4v', 'M4V ', 'dash'];
-    return mp4Brands.includes(brand) ? 'mp4' : null;
+
+    const declaredSize = buf.readUInt32BE(0);
+    // Brand region ends at the box boundary, clamped to what we actually read.
+    // size 0 ("to end of file") falls back to the read length.
+    const boxEnd = Math.min(declaredSize > 0 ? declaredSize : bytesRead, bytesRead);
+
+    const brands: string[] = [buf.subarray(8, 12).toString('latin1')]; // major
+    for (let off = 16; off + 4 <= boxEnd; off += 4) {
+      brands.push(buf.subarray(off, off + 4).toString('latin1')); // compatible
+    }
+
+    // QuickTime wins if present anywhere: a `qt  ` brand means a .mov container,
+    // which the worker and byte-range serving both handle.
+    if (brands.includes('qt  ')) return 'mov';
+    return brands.some((b) => MP4_BRANDS.has(b)) ? 'mp4' : null;
   } finally {
     await fh.close();
   }
