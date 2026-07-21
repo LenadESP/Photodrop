@@ -2,6 +2,34 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.5.2] — 2026-07-21 — accept professional-camera video (XAVC)
+
+A fix: video from cameras that declare a vendor brand — Sony XAVC-S among them —
+was refused at upload. No migration, no schema change, no change to how anything
+is stored or served.
+
+### Fixed
+
+- **Video whose standard brand is only a *compatible* brand is now accepted.**
+  The `ftyp` magic-byte check read only the container's **major** brand. Sony
+  XAVC-S files set the major brand to `XAVC` (a vendor brand) and list the
+  standard brands they conform to — `mp42`, `iso2` — among the **compatible**
+  brands, exactly as ISO/IEC 14496-12 §4.3 provides for. The check now reads the
+  whole `ftyp` box and accepts on the major *or any compatible* brand, so these
+  files pass the ingest gate. This widens only the cheap pre-filter; `ffprobe`
+  and the worker's full decode remain the real validators and are unchanged.
+  Verified end-to-end against a real 1080p50 XAVC-S clip.
+- **The upload dropzone accepts video by file extension, not only MIME type.**
+  Browsers report an empty MIME type for some camera `.MP4` files, which the
+  MIME-only filter dropped silently before upload. It now also matches
+  `.mp4/.m4v/.mov` (and the image extensions).
+
+### Notes
+
+- Very large sources still transcode within the 1.5.1 preview-cost budget or are
+  served download-only; this release only changes which files are *accepted*, not
+  how previews are budgeted.
+
 ## [1.5.1] — 2026-07-19 — preview cost budget
 
 Polish on 1.5.0's video support, from measuring the transcode on the real host for
