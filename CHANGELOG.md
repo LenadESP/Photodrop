@@ -2,6 +2,27 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.5.5] — 2026-08-11 — every upload is resumable
+
+Frontend-only: the SPA now sends **all** files through the resumable chunked
+route, not just large ones. No server, schema, or validation change — the
+resumable route already existed and is unchanged.
+
+### Changed
+
+- **Small files no longer go up as one batched multipart request.** The batch
+  was a single connection for the whole drop, so a dropped connection lost every
+  file in it and one rejected file failed the rest. Each file now uploads through
+  the resumable route independently: a blip costs one auto-retried part, a resume
+  picks up where it stopped, and one bad file doesn't abandon the others (its
+  error is reported and the drop continues).
+- **Byte-level progress within each part.** Resumable parts upload via
+  `XMLHttpRequest` (`apiUpload`, generalized in 1.5.4 to take a raw `Blob`), so
+  progress is smooth even for a single-part file — not a 0→100 jump per file.
+
+The batched multipart endpoint (`POST /api/admin/albums/:uid/photos`) remains
+server-side and valid; the SPA simply no longer calls it.
+
 ## [1.5.4] — 2026-08-11 — upload progress that actually moves
 
 A UX fix, frontend-only: no schema change, no change to how anything is stored,

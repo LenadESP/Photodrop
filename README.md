@@ -41,9 +41,10 @@ Put the file at docs/media/demo.gif and reference it as:
   upload. A file the worker can't process (e.g. a metadata strip that times out) is
   surfaced with its reason and three one-click actions — **Try again**, **Upload anyway**
   (serve it without stripping metadata), or **Cancel** — instead of failing silently.
-- **Resumable uploads** — large files are sent in parts and assembled server-side, so a
-  file bigger than the reverse proxy's request-body ceiling uploads fine, and a dropped
-  connection costs one part instead of the whole file.
+- **Resumable uploads** — every file is sent in parts and assembled server-side, so a
+  file bigger than the reverse proxy's request-body ceiling uploads fine, a dropped
+  connection costs one auto-retried part instead of the whole file, and one bad file in a
+  drop doesn't fail the rest. Progress is shown per byte as it streams.
 - **Link expiry** — give an album a deadline; past it the link 404s and the album is
   permanently deleted (row + files) by a background maintenance pass.
 - **Hardened auth** — mandatory TOTP with replay protection, httpOnly+SameSite JWT

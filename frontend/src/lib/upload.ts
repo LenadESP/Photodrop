@@ -1,4 +1,4 @@
-import { api } from './api';
+import { api, apiUpload } from './api';
 
 // Resumable chunked upload for a single file.
 //
@@ -27,15 +27,23 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 // A part that fails is retried with a widening gap before the upload gives up.
 // This is the payoff of parts: a blip costs one part, not the whole file.
-async function putPart(sessionId: string, partNo: number, blob: Blob, signal?: AbortSignal): Promise<void> {
+// `onProgress` reports bytes sent *within this part* (reset each attempt), which
+// the caller offsets by the bytes already committed for a whole-file figure.
+async function putPart(
+  sessionId: string,
+  partNo: number,
+  blob: Blob,
+  signal?: AbortSignal,
+  onProgress?: (sentInPart: number) => void,
+): Promise<void> {
   let lastError: unknown;
   for (let attempt = 0; attempt < PART_RETRIES; attempt += 1) {
     if (signal?.aborted) throw new Error('Upload cancelled');
     try {
-      await api(`/api/admin/uploads/${sessionId}/parts/${partNo}`, {
+      await apiUpload(`/api/admin/uploads/${sessionId}/parts/${partNo}`, blob, {
         method: 'PUT',
-        raw: blob,
         signal,
+        onProgress: onProgress ? (sent) => onProgress(sent) : undefined,
       });
       return;
     } catch (err) {
@@ -61,13 +69,17 @@ export async function uploadResumable(
   // against the same session only sends what is actually missing.
   const have = new Set(session.received);
   for (let part = 0; part < session.totalParts; part += 1) {
-    if (have.has(part)) {
-      opts.onProgress?.(Math.min((part + 1) * session.partSize, file.size), file.size);
-      continue;
-    }
     const start = part * session.partSize;
     const end = Math.min(start + session.partSize, file.size);
-    await putPart(session.id, part, file.slice(start, end), opts.signal);
+    if (have.has(part)) {
+      opts.onProgress?.(end, file.size);
+      continue;
+    }
+    // Report bytes for the whole file as this part streams: everything before
+    // this part is done, plus however much of this part has been sent so far.
+    await putPart(session.id, part, file.slice(start, end), opts.signal, (sentInPart) =>
+      opts.onProgress?.(Math.min(start + sentInPart, file.size), file.size),
+    );
     opts.onProgress?.(end, file.size);
   }
 

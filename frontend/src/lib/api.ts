@@ -111,25 +111,29 @@ export function isApiError(err: unknown): err is ApiError {
   return err instanceof Error && 'status' in err;
 }
 
-// Multipart upload with byte-level progress.
+// Upload with byte-level progress.
 //
 // `fetch` reports no upload progress (streaming request bodies aren't available
-// on iOS Safari), so a batched photo upload sent through `api()` showed a frozen
-// counter until the whole request finished — looking stuck on a slow uplink even
-// though bytes were flowing. XMLHttpRequest's `upload.onprogress` gives a moving
-// bar. CSRF-rotation and access-token refresh mirror `api()`'s retry-once logic;
-// FormData is re-readable, so replaying the request is safe.
+// on iOS Safari), so an upload sent through `api()` showed a frozen counter until
+// the request finished — looking stuck on a slow uplink even though bytes were
+// flowing. XMLHttpRequest's `upload.onprogress` gives a moving bar. Handles both a
+// raw `Blob` (one resumable part → `application/octet-stream`) and `FormData`.
+// CSRF-rotation and access-token refresh mirror `api()`'s retry-once logic; both
+// body kinds are re-readable, so replaying the request is safe.
 export async function apiUpload<T = unknown>(
   path: string,
-  form: FormData,
-  opts: { onProgress?: (sent: number, total: number) => void; signal?: AbortSignal } = {},
+  body: Blob | FormData,
+  opts: { method?: string; onProgress?: (sent: number, total: number) => void; signal?: AbortSignal } = {},
 ): Promise<T> {
+  const method = opts.method ?? 'POST';
   const send = (csrf: string): Promise<{ status: number; text: string }> =>
     new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', path);
+      xhr.open(method, path);
       xhr.withCredentials = true;
       xhr.setRequestHeader('X-CSRF-Token', csrf);
+      // A Blob part is raw bytes; FormData sets its own multipart content-type.
+      if (body instanceof Blob) xhr.setRequestHeader('Content-Type', 'application/octet-stream');
       if (opts.onProgress) {
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) opts.onProgress!(e.loaded, e.total);
@@ -142,7 +146,7 @@ export async function apiUpload<T = unknown>(
         if (opts.signal.aborted) return reject(new Error('Upload cancelled'));
         opts.signal.addEventListener('abort', () => xhr.abort(), { once: true });
       }
-      xhr.send(form);
+      xhr.send(body);
     });
 
   let res = await send(await ensureCsrf());

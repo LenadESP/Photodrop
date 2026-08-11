@@ -232,16 +232,19 @@ hasn't been EXIF-stripped yet is never exposed — the metadata guarantee is pre
 even though the strip moved off the request path. The gallery shows a placeholder for
 `pending` photos and polls until they are ready.
 
-The frontend (`UploadZone.tsx`) batches drops by total size (~90 MB) and count (30) so
-each request stays under Cloudflare's ~100 MB tunnel body limit and the backend's
-per-request cap.
+The frontend (`UploadZone.tsx`) sends **every** file through the resumable route below,
+one at a time — see "Resumable uploads". The batched multipart route (`admin.upload.ts`,
+`POST …/photos`) is still a valid, tested server endpoint and remains the shared
+`ingestFiles` path's other caller, but the SPA no longer uses it: per-file resumable
+uploads make a drop resilient (a blip costs one part, not the whole batch; one rejected
+file doesn't fail the rest) at the cost of a few more round trips.
 
 ### Resumable uploads
 
-Batching solves *many small files*; it cannot solve *one large file*, which no
-arrangement of a single multipart request can squeeze under a ~100 MB body ceiling. So a
-file at or over `MAX_FILE_BYTES` takes a second route (`admin.uploads.ts`) that sends it
-in parts:
+A single multipart request can't squeeze a large file under Cloudflare's ~100 MB tunnel
+body ceiling, and batching many small files into one request makes a dropped connection
+lose them all. Both are solved by the same route (`admin.uploads.ts`), which the SPA now
+uses for files of every size, sending each in parts:
 
 1. `POST /api/admin/albums/:uid/uploads` — declare name + size, get back a session id,
    the part size, and how many parts to send.
