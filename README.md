@@ -32,11 +32,15 @@ Put the file at docs/media/demo.gif and reference it as:
   downloads, or the whole album as one streamed zip. Both are offered on phone and
   desktop alike; always the originals, never a re-encode.
 - **Metadata stripping** — GPS and camera metadata removed losslessly at upload from
-  photos *and* video, on by default, per-album toggle.
+  photos *and* video, on by default, per-album toggle. (The only exception is a file the
+  admin explicitly chooses to "upload anyway" after a strip failure — a deliberate,
+  per-file override.)
 - **Dark mode** — follows the OS preference, with a persisted manual toggle.
 - **Admin dashboard** — create / rename / toggle public / set-remove password /
   regenerate link / set-clear link expiry / toggle EXIF / delete albums, plus drag-drop
-  upload.
+  upload. A file the worker can't process (e.g. a metadata strip that times out) is
+  surfaced with its reason and three one-click actions — **Try again**, **Upload anyway**
+  (serve it without stripping metadata), or **Cancel** — instead of failing silently.
 - **Resumable uploads** — large files are sent in parts and assembled server-side, so a
   file bigger than the reverse proxy's request-body ceiling uploads fine, and a dropped
   connection costs one part instead of the whole file.

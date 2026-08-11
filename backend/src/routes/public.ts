@@ -227,6 +227,10 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
         // Bytes aren't servable until the worker finishes; the client shows a
         // placeholder for not-yet-ready items and polls.
         ready: p.thumb_status === 'ready',
+        // A permanently-failed item (unservable — poster/strip never succeeded).
+        // The gallery drops these so a viewer never sees an endless spinner; the
+        // reason stays admin-only. Distinct from 'pending', which still polls.
+        failed: p.thumb_status === 'failed',
         kind: p.kind,
         durationMs: p.duration_ms,
         // A video whose transcode is still queued (or failed) has no playable

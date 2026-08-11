@@ -35,3 +35,12 @@ export const UnlockBody = Type.Object(
   { password: Type.String({ minLength: 1, maxLength: 256 }) },
   { additionalProperties: false },
 );
+
+// Admin decision on a failed photo:
+//   retry  — reprocess as-is (strip + poster) now the timeout is fixed.
+//   accept — "upload anyway": reprocess WITHOUT the metadata strip, keeping the
+//            original's tags. (Delete is the existing DELETE /photos/:id route.)
+export const ResolvePhotoBody = Type.Object(
+  { action: Type.Union([Type.Literal('retry'), Type.Literal('accept')]) },
+  { additionalProperties: false },
+);

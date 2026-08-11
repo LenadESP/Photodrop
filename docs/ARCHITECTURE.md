@@ -36,7 +36,7 @@ backend/
       migrate.ts           file-based migration runner (_migrations table)
       bootstrap.ts         seeds the single admin on first boot
       migrations/*.sql     001 init, 002 thumb_status, 003 album expiry, 004 auth
-                           hardening, 005 upload sessions, 006 video
+                           hardening, 005 upload sessions, 006 video, 007 photo errors
       types.ts             row types
     lib/
       cookies.ts           cookie names + serialize options per token type
@@ -48,7 +48,8 @@ backend/
       images.ts            magic-byte sniff + sharp decode/thumbnail gate
       video.ts             ftyp sniff (major+compatible brands) + ffprobe gate, poster
                            frame, preview transcode + cost budget
-      exif.ts              exiftool-vendored lossless metadata strip
+      exif.ts              exiftool-vendored lossless metadata strip; per-task
+                           timeout scales with MAX_UPLOAD_BYTES (large-video safe)
       mime.ts              ext→mime, Content-Disposition sanitizer
       disk.ts              free-space probe + usage% for the disk guard / alert
       notify.ts            best-effort ntfy push (disk alert)
@@ -64,7 +65,8 @@ backend/
       health.ts            GET /api/health
       auth.ts              login, TOTP enroll/verify, refresh, logout, csrf, config
       admin.albums.ts      album CRUD, password, expiry, regenerate-uid
-      admin.upload.ts      batched multipart photo upload + delete
+      admin.upload.ts      batched multipart photo upload + delete; admin photo
+                           listing (status/error) + resolve (retry / accept) a failure
       admin.uploads.ts     resumable chunked upload (session / parts / complete)
       public.ts            album view, unlock, thumb/photo/download bytes (rate-capped)
     schemas/               TypeBox request schemas (auth, albums, common)
@@ -122,9 +124,13 @@ a `_migrations` table). Schema in `migrations/001_init.sql`:
   `stored_filename` (random), `original_name`, `thumb_path`, `width`, `height`,
   `bytes`, `thumb_status` (`pending`|`ready`|`failed`, migration `002`), `kind`
   (`image`|`video`, migration `006`), `duration_ms`, `preview_status`
-  (`pending`|`ready`|`failed`, NULL for images, migration `006`), `created_at`.
+  (`pending`|`ready`|`failed`, NULL for images, migration `006`), `error_code`
+  (why the last attempt failed, NULL for none, migration `007`), `skip_strip`
+  (the admin "upload anyway" per-file override, migration `007`), `created_at`.
   Bytes are served only when `thumb_status = 'ready'`; the column also acts as the
-  durable thumbnail work queue.
+  durable thumbnail work queue. A `failed` row carries `error_code`, which the admin
+  API maps to a human message and the dashboard shows with retry / accept / delete
+  actions — the failure is durable until one of those clears it.
 - **album_assignments** — `(user_id, album_uid)`. Created in V1, used in V2 (client
   portal). Unused by current routes.
 
@@ -283,9 +289,20 @@ The worker handles a video in **two stages, with different consequences**:
    safe to serve: bytes are only served once `thumb_status = 'ready'`, and the strip is
    what the no-metadata-leaks guarantee rests on. The poster is a WebP written into the
    same `thumbs/` directory images use, so the gallery grid needs no special case. If
-   either fails the row is marked `failed`: kept and visible in the dashboard, never
-   served, deletable by hand. Unlike a corrupt image it is *not* deleted — a video ffmpeg
-   dislikes may still be a recording the owner cares about.
+   either fails the row is marked `failed` **with an `error_code`** (`metadata_timeout`,
+   `metadata_failed`, or `poster_failed`): kept and visible in the dashboard, never
+   served. Unlike a corrupt image it is *not* deleted — a video ffmpeg dislikes may still
+   be a recording the owner cares about. The failure is durable and surfaced in the admin
+   panel with three actions: **retry** (reprocess as-is), **accept** — "upload anyway"
+   (reprocess with `skip_strip=1`, keeping the file's metadata), or **delete**. Each
+   requeues (or removes) the row and clears the error. The strip is the same recoverable
+   path for images (migration `007`).
+
+   The strip rewrites the whole container to move the metadata atom, so it costs O(file
+   size); exiftool's per-task timeout is therefore derived from `MAX_UPLOAD_BYTES` at a
+   conservative ~20 MB/s with 1.5× headroom (≈154s at the 2 GiB default, floored at 30s).
+   A fixed 20s cap previously timed out any video over ~600 MB, stranding it `failed` —
+   the failure this whole flow now makes visible and one-click recoverable.
 2. **Preview transcode — best-effort.** 1080p, 24fps, bitrate-capped H.264 + AAC in MP4
    with `+faststart`, written atomically (temp + rename). If it fails, `preview_status`
    goes to `failed` and the original is still delivered at full resolution — it just

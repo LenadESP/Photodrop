@@ -24,7 +24,13 @@ interface Album {
 interface Photo {
   id: number;
   name: string;
+  kind: 'image' | 'video';
+  durationMs: number | null;
+  status: 'pending' | 'ready' | 'failed';
   ready: boolean;
+  failed: boolean;
+  // Human failure reason (e.g. "Metadata stripping timed out"), null unless failed.
+  error: string | null;
 }
 
 export function Admin() {
@@ -54,7 +60,9 @@ export function Admin() {
 
   const loadPhotos = useCallback(async (uid: string) => {
     try {
-      const data = await api<{ photos: Photo[] }>(`/api/a/${uid}`);
+      // Admin-only listing: carries processing status and the failure reason the
+      // public gallery endpoint deliberately omits.
+      const data = await api<{ photos: Photo[] }>(`/api/admin/albums/${uid}/photos`);
       setPhotos(data.photos);
     } catch {
       setPhotos([]);
@@ -66,9 +74,10 @@ export function Admin() {
     else setPhotos([]);
   }, [selectedUid, loadPhotos]);
 
-  // Poll while freshly-uploaded photos are still being processed by the worker.
+  // Poll while anything is still processing. A 'failed' item is terminal until
+  // the admin acts on it, so it does NOT keep the poll alive (no endless spin).
   useEffect(() => {
-    if (!selectedUid || photos.length === 0 || photos.every((p) => p.ready)) return;
+    if (!selectedUid || !photos.some((p) => p.status === 'pending')) return;
     const t = setTimeout(() => void loadPhotos(selectedUid), 3000);
     return () => clearTimeout(t);
   }, [selectedUid, photos, loadPhotos]);
@@ -144,6 +153,21 @@ export function Admin() {
       await refreshAlbum();
     } catch (err) {
       notify(err instanceof Error ? err.message : 'Delete failed', 'error');
+    }
+  };
+
+  // Act on a failed photo: 'retry' reprocesses it (strip + poster); 'accept'
+  // ("upload anyway") reprocesses without stripping, keeping the file's metadata.
+  const resolvePhoto = async (uid: string, id: number, action: 'retry' | 'accept') => {
+    try {
+      await api(`/api/admin/albums/${uid}/photos/${id}/resolve`, {
+        method: 'POST',
+        body: { action },
+      });
+      notify(action === 'retry' ? 'Retrying…' : 'Reprocessing without metadata strip…');
+      await loadPhotos(uid);
+    } catch (err) {
+      notify(err instanceof Error ? err.message : 'Action failed', 'error');
     }
   };
 
@@ -253,37 +277,60 @@ export function Admin() {
                 onError={(m) => notify(m, 'error')}
               />
 
+              {photos.some((p) => p.failed) && (
+                <FailedPhotos
+                  uid={selected.uid}
+                  photos={photos.filter((p) => p.failed)}
+                  onRetry={(id) => void resolvePhoto(selected.uid, id, 'retry')}
+                  onAccept={(id) =>
+                    setConfirm({
+                      message:
+                        'Upload this file anyway? It will be served with its original metadata (GPS, camera info) intact — the album’s EXIF stripping is skipped for this one file.',
+                      action: () => void resolvePhoto(selected.uid, id, 'accept'),
+                    })
+                  }
+                  onCancel={(id) =>
+                    setConfirm({
+                      message: 'Cancel this upload and delete the file? This cannot be undone.',
+                      action: () => void deletePhoto(selected.uid, id),
+                    })
+                  }
+                />
+              )}
+
               {photos.length > 0 && (
                 <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-5">
-                  {photos.map((p) => (
-                    <div key={p.id} className="group relative aspect-square overflow-hidden rounded-md bg-line/40">
-                      {p.ready ? (
-                        <>
-                          <img
-                            src={`/api/a/${selected.uid}/thumb/${p.id}`}
-                            alt={p.name}
-                            loading="lazy"
-                            className="h-full w-full object-cover"
-                          />
-                          <button
-                            onClick={() =>
-                              setConfirm({
-                                message: 'Delete this photo?',
-                                action: () => void deletePhoto(selected.uid, p.id),
-                              })
-                            }
-                            className="absolute right-1 top-1 hidden rounded-md bg-ink/70 px-2 py-1 text-xs text-canvas group-hover:block"
-                          >
-                            Delete
-                          </button>
-                        </>
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center" title="Processing…">
-                          <Spinner className="h-5 w-5" />
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                  {photos.map((p) =>
+                    p.failed ? null : (
+                      <div key={p.id} className="group relative aspect-square overflow-hidden rounded-md bg-line/40">
+                        {p.ready ? (
+                          <>
+                            <img
+                              src={`/api/a/${selected.uid}/thumb/${p.id}`}
+                              alt={p.name}
+                              loading="lazy"
+                              className="h-full w-full object-cover"
+                            />
+                            <button
+                              onClick={() =>
+                                setConfirm({
+                                  message: 'Delete this photo?',
+                                  action: () => void deletePhoto(selected.uid, p.id),
+                                })
+                              }
+                              className="absolute right-1 top-1 hidden rounded-md bg-ink/70 px-2 py-1 text-xs text-canvas group-hover:block"
+                            >
+                              Delete
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center" title="Processing…">
+                            <Spinner className="h-5 w-5" />
+                          </div>
+                        )}
+                      </div>
+                    ),
+                  )}
                 </div>
               )}
             </div>
@@ -294,6 +341,49 @@ export function Admin() {
       <CreateAlbumModal open={createOpen} onClose={() => setCreateOpen(false)} onCreate={createAlbum} />
       <PromptModal prompt={prompt} onClose={() => setPrompt(null)} />
       <ConfirmModal confirm={confirm} onClose={() => setConfirm(null)} />
+    </div>
+  );
+}
+
+// A distinct, persistent panel for photos the worker could not process. It
+// stays until the admin retries, accepts, or cancels each one — the failure is
+// stored server-side, so it survives reloads and restarts.
+function FailedPhotos(props: {
+  uid: string;
+  photos: Photo[];
+  onRetry: (id: number) => void;
+  onAccept: (id: number) => void;
+  onCancel: (id: number) => void;
+}) {
+  return (
+    <div className="space-y-2 rounded-2xl border border-danger/40 bg-danger/5 p-4">
+      <h3 className="text-sm font-semibold text-danger">
+        {props.photos.length} file{props.photos.length === 1 ? '' : 's'} failed to process
+      </h3>
+      <ul className="space-y-2">
+        {props.photos.map((p) => (
+          <li
+            key={p.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line bg-surface px-3 py-2"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{p.name}</p>
+              <p className="text-xs text-danger">Error uploading: {p.error ?? 'Processing failed'}</p>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Button size="sm" variant="secondary" onClick={() => props.onRetry(p.id)}>
+                Try again
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => props.onAccept(p.id)}>
+                Upload anyway
+              </Button>
+              <Button size="sm" variant="danger" onClick={() => props.onCancel(p.id)}>
+                Cancel
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -2,6 +2,41 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.5.3] — 2026-08-11 — recoverable media-processing failures
+
+Large videos could fail the upload-time metadata strip and become permanently
+unservable — invisibly. Stripping metadata from an MP4/MOV rewrites the whole
+file, and the exiftool task timeout was a fixed 20s, so any video over ~600 MB
+timed out, was marked `failed`, and then neither played nor downloaded (every
+byte endpoint gates on `thumb_status='ready'`) while spinning forever in the
+gallery. This release fixes the timeout and makes any such failure visible and
+recoverable from the admin panel.
+
+### Fixed
+
+- **The metadata-strip timeout now scales with the upload ceiling.** exiftool's
+  per-task timeout was 20s regardless of file size; a strip runs at ~20–32 MB/s,
+  so large videos timed out (a 2 GiB file needs ~100s, measured). The timeout is
+  now derived from `MAX_UPLOAD_BYTES` at a conservative 20 MB/s with 1.5×
+  headroom (≈154s at the 2 GiB default), floored at 30s.
+- **A strip failure no longer strands a valid file.** The worker now separates a
+  decode/format failure (corrupt or hostile — still dropped) from a recoverable
+  metadata-strip failure (kept, marked `failed` with a reason), for both images
+  and video.
+
+### Added
+
+- **Persistent, actionable failures in the admin panel.** Migration `007` adds
+  `error_code` (why the last attempt failed; cleared when resolved) and
+  `skip_strip` (the "upload anyway" override) to `photos`. A failed item shows
+  `Error uploading: <reason>` and three actions: **Try again** (reprocess),
+  **Upload anyway** (reprocess without stripping — keeps the file's metadata),
+  and **Cancel** (delete). The state survives reloads and restarts.
+- **Admin photo listing** (`GET /api/admin/albums/:uid/photos`) carrying
+  processing status and the failure reason; the public gallery endpoint exposes
+  only a `failed` flag (no internal detail) and hides failed items so a recipient
+  never sees an endless spinner.
+
 ## [1.5.2] — 2026-07-21 — accept professional-camera video (XAVC)
 
 A fix: video from cameras that declare a vendor brand — Sony XAVC-S among them —

@@ -15,6 +15,9 @@ interface Photo {
   height: number | null;
   name: string;
   ready: boolean;
+  // Unservable (poster/strip never succeeded). Hidden from the gallery entirely
+  // — the recipient never sees a stuck item; the admin resolves it in the panel.
+  failed: boolean;
   kind: 'image' | 'video';
   durationMs: number | null;
   previewReady: boolean;
@@ -69,7 +72,9 @@ export function Gallery() {
   // hasn't appeared yet, or a video transcode still queued behind it.
   useEffect(() => {
     if (view !== 'ready' || !meta) return;
-    if (meta.photos.every((p) => p.ready && !p.previewPending)) return;
+    // A failed item is terminal (and hidden), so it must not keep the poll
+    // alive: stop once every photo is ready-with-preview-settled OR failed.
+    if (meta.photos.every((p) => p.failed || (p.ready && !p.previewPending))) return;
     const t = setTimeout(() => void load(), 3000);
     return () => clearTimeout(t);
   }, [view, meta, load]);
@@ -124,7 +129,9 @@ export function Gallery() {
     );
   }
 
-  const photos = meta?.photos ?? [];
+  // Failed items are unservable — drop them from the gallery so a viewer never
+  // sees a permanent spinner or a broken tile. The count reflects what's shown.
+  const photos = (meta?.photos ?? []).filter((p) => !p.failed);
   const readyPhotos = photos.filter((p) => p.ready);
   const pendingCount = photos.length - readyPhotos.length;
 

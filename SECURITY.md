@@ -100,6 +100,14 @@ runs on untrusted image bytes).
   worker, but **bytes are not served until `thumb_status = 'ready'`** — i.e. after the
   strip — so an un-stripped original is never exposed. The per-album toggle affects
   future uploads only.
+  - **Explicit per-file override.** A failed item's admin **"upload anyway"** action
+    (`skip_strip=1`, migration `007`) reprocesses it *without* stripping, so the served
+    original keeps its metadata. This is the one path by which a tagged original is
+    served, and it is never automatic: it requires the authenticated admin to choose it
+    for that one file, behind a confirmation that spells out the consequence. The default
+    and every non-override path still strip. It exists so a large recording that only
+    fails the strip (e.g. a timeout) can still be delivered rather than lost — the admin
+    trading the metadata guarantee for that file, deliberately.
 - **Path safety.** On-disk names are random and decoupled from user input; album paths
   are built from a validated uid and passed through `safeJoin`, which refuses anything
   escaping the album directory (`lib/paths.ts`).

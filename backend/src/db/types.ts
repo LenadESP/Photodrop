@@ -41,6 +41,16 @@ export type MediaKind = 'image' | 'video';
 // NULL on images — the playback derivative only applies to video.
 export type PreviewStatus = 'pending' | 'ready' | 'failed' | null;
 
+// Why the last processing attempt failed (thumb_status='failed'), or NULL for
+// none. Recoverable failures only: a decode/format failure still drops the row.
+// 'unknown' covers a pre-1.5.3 'failed' row that predates error_code.
+export type ErrorCode =
+  | 'metadata_timeout'
+  | 'metadata_failed'
+  | 'poster_failed'
+  | 'unknown'
+  | null;
+
 export interface PhotoRow {
   id: number;
   album_uid: string;
@@ -54,5 +64,7 @@ export interface PhotoRow {
   kind: MediaKind;
   duration_ms: number | null;
   preview_status: PreviewStatus;
+  error_code: ErrorCode;
+  skip_strip: number; // 0 | 1 — admin "upload anyway" override (skip metadata strip)
   created_at: number;
 }

@@ -3,9 +3,9 @@ import fp from 'fastify-plugin';
 import type { FastifyInstance } from 'fastify';
 import { makeDisplay, makeThumbnail } from '../lib/images.js';
 import { makePoster, makePreview } from '../lib/video.js';
-import { stripAllMetadata } from '../lib/exif.js';
+import { MetadataTimeoutError, stripAllMetadata } from '../lib/exif.js';
 import { displayDir, originalsDir, previewDir, safeJoin, thumbsDir } from '../lib/paths.js';
-import type { AlbumRow, PhotoRow } from '../db/types.js';
+import type { AlbumRow, ErrorCode, PhotoRow } from '../db/types.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -70,21 +70,52 @@ export default fp(async function thumbnailerPlugin(app: FastifyInstance): Promis
     }
   }
 
+  // A RECOVERABLE failure: the file is kept and marked 'failed' with a reason,
+  // so the admin panel can show it and offer retry / accept / delete. Unlike
+  // dropPhoto (corrupt or hostile bytes), the original is left on disk untouched.
+  // Never served — every byte endpoint gates on thumb_status='ready'.
+  function markFailed(photo: PhotoRow, code: ErrorCode, err: unknown): void {
+    app.log.warn({ err, photoId: photo.id, code }, 'media processing failed; awaiting admin action');
+    app.db
+      .prepare("UPDATE photos SET thumb_status = 'failed', error_code = ? WHERE id = ?")
+      .run(code, photo.id);
+  }
+
+  // Whether this file must have its metadata stripped before it can be served:
+  // the album opts in AND the admin has not chosen "upload anyway" (skip_strip)
+  // for this specific file.
+  const shouldStrip = (photo: PhotoRow, album: AlbumRow | undefined): boolean =>
+    album?.exif_strip === 1 && photo.skip_strip !== 1;
+
   async function processImage(photo: PhotoRow, album: AlbumRow | undefined): Promise<void> {
     const original = safeJoin(originalsDir(photo.album_uid), photo.stored_filename);
     const thumb = safeJoin(thumbsDir(photo.album_uid), photo.thumb_path);
     const display = safeJoin(displayDir(photo.album_uid), photo.thumb_path);
+
+    // Decode gate: a file that fails a full decode/resize here is corrupt or
+    // hostile, so drop it entirely (row + files) rather than keep a broken photo.
     try {
       mkdirSync(displayDir(photo.album_uid), { recursive: true }); // may predate the display dir
       await makeThumbnail(original, thumb); // full decode — the definitive gate
       await makeDisplay(original, display); // intermediate size for the lightbox
-      if (album && album.exif_strip === 1) await stripAllMetadata(original);
-      app.db.prepare("UPDATE photos SET thumb_status = 'ready' WHERE id = ?").run(photo.id);
     } catch (err) {
-      // A file that fails a full decode here is corrupt or hostile: drop it
-      // entirely (row + on-disk files) rather than leave a broken photo behind.
       dropPhoto(photo, 'thumbnail generation failed; removing photo', err);
+      return;
     }
+
+    // Metadata strip: decoded fine, so the file is real. A strip failure here
+    // (e.g. a timeout) is recoverable, NOT corruption — keep the file and let
+    // the admin retry or accept it rather than deleting a valid photo.
+    try {
+      if (shouldStrip(photo, album)) await stripAllMetadata(original);
+    } catch (err) {
+      const code = err instanceof MetadataTimeoutError ? 'metadata_timeout' : 'metadata_failed';
+      markFailed(photo, code, err);
+      return;
+    }
+    app.db
+      .prepare("UPDATE photos SET thumb_status = 'ready', error_code = NULL WHERE id = ?")
+      .run(photo.id);
   }
 
   // Video, stage one: strip metadata and cut a poster frame. Both must succeed —
@@ -99,19 +130,34 @@ export default fp(async function thumbnailerPlugin(app: FastifyInstance): Promis
   async function processVideoPoster(photo: PhotoRow, album: AlbumRow | undefined): Promise<void> {
     const original = safeJoin(originalsDir(photo.album_uid), photo.stored_filename);
     const poster = safeJoin(thumbsDir(photo.album_uid), photo.thumb_path);
+
+    // Strip first — it is what the no-metadata-leaks guarantee rests on. A
+    // failure is recoverable (kept + marked 'failed'), never a silent serve.
     try {
-      if (album && album.exif_strip === 1) await stripAllMetadata(original);
-      await makePoster(original, poster, photo.duration_ms ?? 0);
-      app.db.prepare("UPDATE photos SET thumb_status = 'ready' WHERE id = ?").run(photo.id);
+      if (shouldStrip(photo, album)) await stripAllMetadata(original);
     } catch (err) {
-      app.log.warn({ err, photoId: photo.id }, 'video poster/strip failed; marking unservable');
-      app.db.prepare("UPDATE photos SET thumb_status = 'failed' WHERE id = ?").run(photo.id);
+      const code = err instanceof MetadataTimeoutError ? 'metadata_timeout' : 'metadata_failed';
+      markFailed(photo, code, err);
+      return;
+    }
+
+    // Poster frame. If ffmpeg can't read the file at all it is likely damaged,
+    // but a video may still be a recording the owner cares about, so it is kept
+    // (marked 'failed', deletable by hand) rather than dropped like a bad image.
+    try {
+      await makePoster(original, poster, photo.duration_ms ?? 0);
+    } catch (err) {
       try {
         rmSync(poster, { force: true });
       } catch {
         /* ignore */
       }
+      markFailed(photo, 'poster_failed', err);
+      return;
     }
+    app.db
+      .prepare("UPDATE photos SET thumb_status = 'ready', error_code = NULL WHERE id = ?")
+      .run(photo.id);
   }
 
   // Video, stage two: the playback derivative. Best-effort by design — if this
