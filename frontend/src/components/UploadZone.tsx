@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { api } from '../lib/api';
+import { api, apiUpload } from '../lib/api';
 import { uploadResumable, type UploadLimits } from '../lib/upload';
 import { Spinner } from './Spinner';
 
@@ -39,7 +39,7 @@ function chunkFiles(files: File[]): File[][] {
 
 export function UploadZone({ uid, onUploaded, onError }: Props) {
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number; pct: number } | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
   const [limits, setLimits] = useState<UploadLimits | null>(null);
 
@@ -56,30 +56,44 @@ export function UploadZone({ uid, onUploaded, onError }: Props) {
       const big = accepted.filter((f) => f.size >= perFileCap);
       const small = accepted.filter((f) => f.size < perFileCap);
 
+      // Byte-based percentage across the whole drop, so the bar always moves —
+      // even a single batched request (all small files in one POST) reports its
+      // upload progress instead of sitting at 0 until it finishes.
+      const totalBytes = accepted.reduce((sum, f) => sum + f.size, 0) || 1;
+      let sentBase = 0; // bytes fully sent by completed requests
+      const pctAt = (inFlight: number) =>
+        Math.min(100, Math.round(((sentBase + inFlight) / totalBytes) * 100));
+
       setBusy(true);
-      setProgress({ done: 0, total: accepted.length });
+      setProgress({ done: 0, total: accepted.length, pct: 0 });
       try {
         let done = 0;
 
         for (const chunk of chunkFiles(small)) {
           const form = new FormData();
           for (const f of chunk) form.append('files', f, f.name);
-          await api(`/api/admin/albums/${uid}/photos`, { method: 'POST', form });
+          const chunkBytes = chunk.reduce((sum, f) => sum + f.size, 0);
+          await apiUpload(`/api/admin/albums/${uid}/photos`, form, {
+            onProgress: (sent) =>
+              setProgress({ done, total: accepted.length, pct: pctAt(sent) }),
+          });
+          sentBase += chunkBytes;
           done += chunk.length;
-          setProgress({ done, total: accepted.length });
+          setProgress({ done, total: accepted.length, pct: pctAt(0) });
         }
 
         // Large files go one at a time, in parts, with byte-level progress —
         // a single file here can be minutes of upload.
         for (const file of big) {
+          setDetail(file.name);
           await uploadResumable(uid, file, {
-            onProgress: (sent, total) => {
-              setDetail(`${file.name} — ${Math.round((sent / total) * 100)}%`);
-            },
+            onProgress: (sent) =>
+              setProgress({ done, total: accepted.length, pct: pctAt(sent) }),
           });
+          sentBase += file.size;
           done += 1;
           setDetail(null);
-          setProgress({ done, total: accepted.length });
+          setProgress({ done, total: accepted.length, pct: pctAt(0) });
         }
 
         onUploaded(accepted.length);
@@ -122,9 +136,13 @@ export function UploadZone({ uid, onUploaded, onError }: Props) {
         <div className="flex flex-col items-center gap-1 text-muted">
           <div className="flex items-center gap-2">
             <Spinner />
-            {progress ? `Uploading ${progress.done}/${progress.total}…` : 'Uploading…'}
+            {progress ? `Uploading ${progress.pct}%…` : 'Uploading…'}
           </div>
-          {detail && <span className="text-xs">{detail}</span>}
+          {progress && (
+            <span className="text-xs">
+              {detail ?? `${progress.done}/${progress.total} files`}
+            </span>
+          )}
         </div>
       ) : (
         <>

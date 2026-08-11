@@ -110,3 +110,62 @@ export async function api<T = unknown>(path: string, opts: RequestOptions = {}):
 export function isApiError(err: unknown): err is ApiError {
   return err instanceof Error && 'status' in err;
 }
+
+// Multipart upload with byte-level progress.
+//
+// `fetch` reports no upload progress (streaming request bodies aren't available
+// on iOS Safari), so a batched photo upload sent through `api()` showed a frozen
+// counter until the whole request finished — looking stuck on a slow uplink even
+// though bytes were flowing. XMLHttpRequest's `upload.onprogress` gives a moving
+// bar. CSRF-rotation and access-token refresh mirror `api()`'s retry-once logic;
+// FormData is re-readable, so replaying the request is safe.
+export async function apiUpload<T = unknown>(
+  path: string,
+  form: FormData,
+  opts: { onProgress?: (sent: number, total: number) => void; signal?: AbortSignal } = {},
+): Promise<T> {
+  const send = (csrf: string): Promise<{ status: number; text: string }> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', path);
+      xhr.withCredentials = true;
+      xhr.setRequestHeader('X-CSRF-Token', csrf);
+      if (opts.onProgress) {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) opts.onProgress!(e.loaded, e.total);
+        };
+      }
+      xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.onabort = () => reject(new Error('Upload cancelled'));
+      if (opts.signal) {
+        if (opts.signal.aborted) return reject(new Error('Upload cancelled'));
+        opts.signal.addEventListener('abort', () => xhr.abort(), { once: true });
+      }
+      xhr.send(form);
+    });
+
+  let res = await send(await ensureCsrf());
+  // CSRF token may have rotated/expired — refresh once and retry.
+  if (res.status === 403) {
+    csrfToken = null;
+    res = await send(await ensureCsrf());
+  }
+  // Access token may have expired mid-flight — mint a new one and retry once.
+  if (res.status === 401 && !path.startsWith('/api/auth/') && (await refreshSession())) {
+    res = await send(await ensureCsrf());
+  }
+
+  const data: unknown = res.text ? JSON.parse(res.text) : null;
+  if (res.status < 200 || res.status >= 300) {
+    const message =
+      data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
+        ? data.error
+        : 'Upload failed';
+    const err = new Error(message) as ApiError;
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data as T;
+}

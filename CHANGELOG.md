@@ -2,6 +2,24 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.5.4] — 2026-08-11 — upload progress that actually moves
+
+A UX fix, frontend-only: no schema change, no change to how anything is stored,
+served, or validated.
+
+### Fixed
+
+- **The upload indicator now shows real byte progress.** Small files are sent as
+  one batched multipart request, and `fetch` reports no upload progress (a
+  streaming request body isn't available on iOS Safari), so the counter sat at
+  `0/N` for the entire upload and only jumped to success at the very end — on a
+  slow uplink that looked exactly like a stuck upload, though bytes were flowing
+  the whole time. The batch now uploads via `XMLHttpRequest`, whose
+  `upload.onprogress` drives an always-moving percentage across the whole drop
+  (`lib/api.ts` `apiUpload`; CSRF-rotation and token-refresh retry-once logic
+  mirror `api()`). The resumable large-file path already had byte progress and is
+  unchanged.
+
 ## [1.5.3] — 2026-08-11 — recoverable media-processing failures
 
 Large videos could fail the upload-time metadata strip and become permanently
