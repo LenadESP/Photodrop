@@ -4,7 +4,7 @@ Direction, not a commitment. Single-maintainer project; items land when they lan
 The V1 schema was deliberately shaped so the big multi-tenant item stays additive.
 
 Shipped items live in [CHANGELOG.md](https://github.com/LenadESP/Photodrop/blob/main/CHANGELOG.md).
-Everything through **1.5.5** is shipped: reliability & delivery (1.1.0), the polish /
+Everything through **1.6.1** is shipped: reliability & delivery (1.1.0), the polish /
 mobile / lifecycle line (1.1.3–1.1.5), the security-hardening tranche (1.2.0 —
 configurable proxy-trust, bulk-endpoint rate caps, TOTP replay protection, session
 revocation), the download UX (1.3.0 — explicit picker + reliable single-photo
@@ -17,7 +17,10 @@ preview cost budget so an over-large transcode is declined rather than run for a
 compatible brand — Sony XAVC-S (1.5.2), recoverable media-processing failures surfaced
 in the dashboard with retry / upload-anyway / cancel (1.5.3), and the upload-progress
 line: real byte progress on every upload (1.5.4), then every file through the resumable
-route so one blip or one bad file no longer costs the whole drop (1.5.5).
+route so one blip or one bad file no longer costs the whole drop (1.5.5), and
+localisation — English and Spanish across the admin chrome and the recipient gallery,
+with API error text negotiated server-side from `Accept-Language` (1.6.0), then the
+layout fixes Spanish exposed in chrome that had only ever held English (1.6.1).
 
 Notation: `x.Y.0` = features, `x.x.Y` = fixes/polish.
 
@@ -31,12 +34,7 @@ Flagged by the v1.3.1 audit, deliberately left unscheduled: both are larger than
   password-guessing flood.
 
 ## In progress
-- **1.6.0 — localisation.** English and Spanish, picked from the device language on
-  first visit and switchable from a toggle beside the theme toggle (both the admin
-  chrome and the recipient-facing gallery). The interesting half is server-side: the
-  SPA renders API error text verbatim, so the backend negotiates `Accept-Language` and
-  returns already-localised messages. Scaffolded for *n* languages — adding a third is
-  a catalogue file, not a refactor — even though only two ship now.
+Nothing. 1.6.1 is the current release and is deployed.
 
 ## Next up
 Nothing else is scheduled. Candidates, roughly in order of how much they'd actually be used:
