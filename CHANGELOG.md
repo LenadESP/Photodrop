@@ -2,6 +2,49 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.6.1] — 2026-08-14 — layouts that survive a longer language
+
+Frontend-only, layout only: no server, schema, or validation change, and no
+string changed. 1.6.0 shipped Spanish into layouts that had only ever held
+English, and Spanish runs materially longer — "Panel de administración" is
+~180px against "Admin dashboard"'s ~115px.
+
+### Fixed
+
+- **The top bar no longer rams the wordmark on a phone.** Logged in as admin in
+  Spanish, the nav needs ~378px next to a ~95px wordmark inside a 375px
+  viewport, and a flex item won't shrink below its content — so the nav simply
+  overlapped the logo. The header and the nav now wrap, and the wordmark is
+  `shrink-0`. Every control stays reachable at any width, in any language.
+- **The theme and language toggles no longer squash.** `h-8 w-8` still shrinks
+  under flex pressure; both are now `shrink-0`.
+- **The failed-photo actions fit a phone.** The row was `shrink-0` around three
+  buttons that run ~320px in Spanish ("Subir de todos modos" alone is ~145px) —
+  wider than the card containing them. It wraps now.
+- **A long album title no longer pushes the gallery controls off-screen** (the
+  header's title block lacked `min-w-0`, so it refused to shrink) **or past the
+  card border on the password screen** (no `break-words`). Album titles are user
+  data and can be arbitrarily long.
+- **Smaller squashes from the same cause:** the "Public (…)" checkbox being
+  crushed by its own label, and the sidebar's photo count shrinking instead of
+  the title that is already set up to truncate. Both `shrink-0` now.
+- **The gallery's download/toggle row wraps** instead of overflowing once
+  "Descargar todo" and "Descargar ZIP" sit next to both toggles.
+- **The empty-state panel got padding**, so its text isn't flush against the
+  dashed border on a narrow screen.
+
+### Notes
+
+Also added `overflow-wrap: break-word` on `body` as a backstop, so an unbroken
+filename or album title breaks instead of forcing the whole page to scroll
+sideways. Deliberately **not** `overflow-x: hidden`, which hides this class of
+bug rather than fixing it.
+
+Found by auditing all 38 horizontal flex containers rather than by spotting
+them one at a time — they are all one root cause (a flex item does not shrink
+below its content unless told to), and English labels were short enough that
+nothing ever reached the limit.
+
 ## [1.6.0] — 2026-08-14 — English and Spanish
 
 The whole app is localised, admin chrome and recipient-facing gallery alike. It

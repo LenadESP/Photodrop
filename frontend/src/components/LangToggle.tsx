@@ -17,7 +17,7 @@ export function LangToggle() {
       onClick={toggleLocale}
       aria-label={t('lang.switchTo', { language: nextName })}
       title={nextName}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-semibold uppercase tracking-wide text-ink transition-colors hover:bg-ink/5"
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-xs font-semibold uppercase tracking-wide text-ink transition-colors hover:bg-ink/5"
     >
       {locale}
     </button>

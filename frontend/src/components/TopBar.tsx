@@ -8,13 +8,18 @@ import { LangToggle } from './LangToggle';
 export function TopBar() {
   const { user, logout } = useAuth();
   const t = useT();
+  // The header wraps rather than crushes. The nav can't fit a phone alongside
+  // the wordmark once labels are translated — "Panel de administración" alone
+  // is ~180px — and flex items don't shrink below their content, so without
+  // flex-wrap the nav simply rams the logo. Wrapping keeps every control
+  // reachable at any width, in any language.
   return (
-    <header className="flex items-center justify-between px-5 py-4 sm:px-8">
+    <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-5 py-4 sm:px-8">
       {/* The wordmark is the product name — a proper noun, never translated. */}
-      <Link to="/" className="text-lg font-semibold tracking-tight">
+      <Link to="/" className="shrink-0 text-lg font-semibold tracking-tight">
         photodrop
       </Link>
-      <nav className="flex items-center gap-2">
+      <nav className="flex flex-wrap items-center justify-end gap-2">
         <LangToggle />
         <ThemeToggle />
         {user?.role === 'admin' ? (

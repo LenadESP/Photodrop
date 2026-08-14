@@ -112,7 +112,9 @@ export function Gallery() {
       <div className="flex min-h-full items-center justify-center px-6">
         <form onSubmit={unlock} className="w-full max-w-sm rounded-2xl border border-line bg-surface p-7 shadow-soft space-y-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+            {/* User data in a fixed-width card — an unbroken title would run
+                past the border without this. */}
+            <h1 className="break-words text-xl font-semibold tracking-tight">{title}</h1>
             <p className="mt-1 text-sm text-muted">{t('gallery.passwordProtected')}</p>
           </div>
           <Input
@@ -162,14 +164,17 @@ export function Gallery() {
   return (
     <div className="min-h-full">
       <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-5 sm:px-6">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+        {/* min-w-0 + break-words: the album title is user data and can be long
+            or unbroken, and a flex child won't shrink below its content without
+            min-w-0 — it would push the controls off a phone screen. */}
+        <div className="min-w-0">
+          <h1 className="break-words text-2xl font-semibold tracking-tight">{title}</h1>
           <p className="text-sm text-muted">
             {t('gallery.photoCount', { count: photos.length })}
             {pendingCount > 0 && ` · ${t('gallery.processingCount', { count: pendingCount })}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {readyPhotos.length > 0 && (
             <Button variant="secondary" size="sm" onClick={() => void downloadAll()} disabled={!!dlProgress}>
               {dlProgress ? <Spinner className="h-4 w-4" /> : null}

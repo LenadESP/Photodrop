@@ -61,6 +61,12 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* A long unbroken run — a filename, an album title, a URL — must break rather
+     than force the whole page to scroll sideways. This is a backstop, not a
+     substitute for laying containers out properly: it breaks words, it does not
+     stop a fixed-width flex row from overflowing. Deliberately NOT
+     `overflow-x: hidden`, which would hide such a bug instead of fixing it. */
+  overflow-wrap: break-word;
 }
 
 /* Consistent, quiet focus treatment across the app. */

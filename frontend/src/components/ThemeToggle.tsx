@@ -26,7 +26,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label={dark ? t('theme.switchToLight') : t('theme.switchToDark')}
       title={dark ? t('theme.lightMode') : t('theme.darkMode')}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-ink transition-colors hover:bg-ink/5"
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-ink transition-colors hover:bg-ink/5"
     >
       {dark ? (
         // Sun

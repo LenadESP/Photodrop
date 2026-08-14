@@ -200,7 +200,9 @@ export function Admin() {
                     }`}
                   >
                     <span className="truncate">{a.title}</span>
-                    <span className={a.uid === selectedUid ? 'text-canvas/60' : 'text-muted'}>
+                    <span
+                      className={`shrink-0 pl-2 ${a.uid === selectedUid ? 'text-canvas/60' : 'text-muted'}`}
+                    >
                       {a.photo_count}
                     </span>
                   </button>
@@ -213,7 +215,7 @@ export function Admin() {
         {/* Detail */}
         <section>
           {!selected ? (
-            <div className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-line text-muted">
+            <div className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-line px-6 text-center text-muted">
               {t('admin.selectOrCreate')}
             </div>
           ) : (
@@ -375,7 +377,10 @@ function FailedPhotos(props: {
                 {t('admin.failedReason', { reason: p.error ?? t('admin.failedFallback') })}
               </p>
             </div>
-            <div className="flex shrink-0 gap-2">
+            {/* Wraps, and must not be shrink-0: the three labels run ~320px in
+                Spanish ("Subir de todos modos" alone is ~145px), which is wider
+                than the card on a phone. */}
+            <div className="flex flex-wrap gap-2">
               <Button size="sm" variant="secondary" onClick={() => props.onRetry(p.id)}>
                 {t('admin.tryAgain')}
               </Button>
@@ -508,7 +513,12 @@ function CreateAlbumModal(props: {
       <form onSubmit={submit} className="space-y-4">
         <Input label={t('admin.fieldTitle')} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required />
         <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
+          <input
+            type="checkbox"
+            className="shrink-0"
+            checked={isPublic}
+            onChange={(e) => setIsPublic(e.target.checked)}
+          />
           {t('admin.publicCheckbox')}
         </label>
         <Input
