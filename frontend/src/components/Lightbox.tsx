@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { canShareFiles, downloadUrl, fetchAsFile, shareLoadedFiles } from '../lib/share';
+import { useT } from '../i18n';
 
 export interface LightboxPhoto {
   id: number;
@@ -31,6 +32,7 @@ const MAX_ZOOM = 4;
 const SWIPE_THRESHOLD = 50;
 
 export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
+  const t = useT();
   const photo = photos[index];
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -206,10 +208,10 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
             onClick={() => void onSave()}
             className="rounded-lg px-3 py-1.5 text-sm hover:bg-white/10"
           >
-            Save
+            {t('lightbox.save')}
           </button>
           <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm hover:bg-white/10">
-            Close
+            {t('common.close')}
           </button>
         </div>
       </div>
@@ -230,7 +232,7 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
       >
         {index > 0 && !zoomed && (
           <button
-            aria-label="Previous"
+            aria-label={t('lightbox.previous')}
             className={`${navBtn} left-3`}
             onClick={() => {
               if (suppressClick.current) return;
@@ -264,8 +266,8 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
               />
               <p className="text-sm text-white/70">
                 {photo.previewPending
-                  ? 'This video is still being prepared for playback. You can download the full-resolution original now.'
-                  : 'This video is too large to preview in the browser. Download the full-resolution original to watch it.'}
+                  ? t('lightbox.videoPreparing')
+                  : t('lightbox.videoTooLarge')}
               </p>
             </div>
           )
@@ -283,7 +285,7 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
         )}
         {index < photos.length - 1 && !zoomed && (
           <button
-            aria-label="Next"
+            aria-label={t('lightbox.next')}
             className={`${navBtn} right-3`}
             onClick={() => {
               if (suppressClick.current) return;
@@ -297,12 +299,12 @@ export function Lightbox({ uid, photos, index, onClose, onIndex }: Props) {
 
       {/* Zoom is an image affordance; a video has its own controls. */}
       <div className={`flex items-center justify-center gap-2 p-4 ${photo.kind === 'video' ? 'invisible' : ''}`}>
-        <button aria-label="Zoom out" className={iconBtn} onClick={zoomOut} disabled={zoom <= MIN_ZOOM}>
+        <button aria-label={t('lightbox.zoomOut')} className={iconBtn} onClick={zoomOut} disabled={zoom <= MIN_ZOOM}>
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M5 12h14" />
           </svg>
         </button>
-        <button aria-label="Zoom in" className={iconBtn} onClick={zoomIn} disabled={zoom >= MAX_ZOOM}>
+        <button aria-label={t('lightbox.zoomIn')} className={iconBtn} onClick={zoomIn} disabled={zoom >= MAX_ZOOM}>
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
           </svg>

@@ -2,6 +2,61 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [1.6.0] — 2026-08-14 — English and Spanish
+
+The whole app is localised, admin chrome and recipient-facing gallery alike. It
+opens in the device language and can be switched from a toggle beside the theme
+toggle. No schema change, no change to how anything is stored, served, or
+validated; album titles and filenames are user data and are never translated.
+
+### Added
+
+- **Language support: English and Spanish.** On a first visit the language comes
+  from `navigator.languages`, taking the first entry the app supports — a device
+  set to `[ca, es, en]` opens in Spanish, not English. Region subtags are
+  ignored (`es-419` and `es-ES` are both `es`). An explicit choice is persisted
+  in `localStorage` and wins from then on. The resolution runs in `main.tsx`
+  before React mounts, alongside the existing theme block, so the first paint is
+  already in the right language and `<html lang>` always matches what is on
+  screen — no inline script, which the CSP would block anyway.
+- **A language toggle** (`LangToggle`), mirroring `ThemeToggle`. It shows the
+  current language and cycles to the next. Mounted in `TopBar` and — separately,
+  because the gallery has no TopBar — in the gallery header, which is where a
+  recipient who doesn't read English actually needs it.
+- **Server-side locale negotiation.** The SPA renders whatever string the API
+  puts in `error`, so translating only the frontend would have left every
+  failure in English. The backend now negotiates `Accept-Language` (q-values,
+  primary-subtag match) and returns already-localised text. All 72 error call
+  sites go through a single `reply.fail(status, key)` helper, and the rate
+  limiter, TypeBox validation rejections and unhandled throws are normalised
+  onto the same envelope instead of each emitting their own English shape.
+- **A stable `code` on every error response**, alongside the localised `error`
+  text — machine-readable identity that doesn't move when the locale does. The
+  admin photo listing gains `errorCode` for the same reason. Both are additive;
+  nothing that read `error` before has changed shape.
+
+### Changed
+
+- **`Accept-Language` is set explicitly on every API request** rather than left
+  to the browser. It has to follow the *chosen* language: someone on an English
+  device who switches the app to Spanish must not get English errors inside a
+  Spanish UI. (Image `src` and direct browser downloads can't carry it and use
+  the browser's own header — they return bytes, not text, so it doesn't matter.)
+- **API responses under `/api/` now send `Vary: Accept-Language`,** so the
+  reverse proxy can't serve one language's error text to a request that asked
+  for the other.
+- **`ingestFiles` returns a message key and params instead of rendered text.**
+  It runs below the HTTP layer and has no locale; the route translates it.
+
+### Notes
+
+Both catalogues are typed against the English source, so a missing key or a
+plural flattened to a plain string is a compile error rather than a blank
+string at runtime. Plural forms are keyed by CLDR category and selected with
+`Intl.PluralRules` — English and Spanish only use `one`/`other`, but a language
+with richer plural rules is a catalogue file, not a refactor. Adding a language
+is two lines: a catalogue, and one entry in the registry.
+
 ## [1.5.5] — 2026-08-11 — every upload is resumable
 
 Frontend-only: the SPA now sends **all** files through the resumable chunked

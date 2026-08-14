@@ -9,6 +9,7 @@ import { Modal } from '../components/Modal';
 import { TopBar } from '../components/TopBar';
 import { FullPageSpinner, Spinner } from '../components/Spinner';
 import { UploadZone } from '../components/UploadZone';
+import { useI18n, useT } from '../i18n';
 
 interface Album {
   uid: string;
@@ -34,6 +35,7 @@ interface Photo {
 }
 
 export function Admin() {
+  const t = useT();
   const { user, loading: authLoading } = useAuth();
   const { notify } = useToast();
 
@@ -95,7 +97,7 @@ export function Admin() {
       await api(`/api/admin/albums/${uid}`, { method: 'PATCH', body: changes });
       await loadAlbums();
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Update failed', 'error');
+      notify(err instanceof Error ? err.message : t('admin.errUpdateFailed'), 'error');
     }
   };
 
@@ -107,9 +109,9 @@ export function Admin() {
       setCreateOpen(false);
       await loadAlbums();
       setSelectedUid(data.album.uid);
-      notify('Album created');
+      notify(t('admin.toastAlbumCreated'));
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Create failed', 'error');
+      notify(err instanceof Error ? err.message : t('admin.errCreateFailed'), 'error');
     }
   };
 
@@ -117,9 +119,9 @@ export function Admin() {
     try {
       await api(`/api/admin/albums/${uid}/password`, { method: 'POST', body: { password } });
       await loadAlbums();
-      notify(password ? 'Password set' : 'Password removed');
+      notify(password ? t('admin.toastPasswordSet') : t('admin.toastPasswordRemoved'));
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Failed', 'error');
+      notify(err instanceof Error ? err.message : t('admin.errFailed'), 'error');
     }
   };
 
@@ -130,9 +132,9 @@ export function Admin() {
       });
       await loadAlbums();
       setSelectedUid(data.album.uid);
-      notify('New link generated — the old one no longer works');
+      notify(t('admin.toastLinkRegenerated'));
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Failed', 'error');
+      notify(err instanceof Error ? err.message : t('admin.errFailed'), 'error');
     }
   };
 
@@ -141,9 +143,9 @@ export function Admin() {
       await api(`/api/admin/albums/${uid}`, { method: 'DELETE' });
       setSelectedUid(null);
       await loadAlbums();
-      notify('Album deleted');
+      notify(t('admin.toastAlbumDeleted'));
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Delete failed', 'error');
+      notify(err instanceof Error ? err.message : t('admin.errDeleteFailed'), 'error');
     }
   };
 
@@ -152,7 +154,7 @@ export function Admin() {
       await api(`/api/admin/albums/${uid}/photos/${id}`, { method: 'DELETE' });
       await refreshAlbum();
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Delete failed', 'error');
+      notify(err instanceof Error ? err.message : t('admin.errDeleteFailed'), 'error');
     }
   };
 
@@ -164,10 +166,10 @@ export function Admin() {
         method: 'POST',
         body: { action },
       });
-      notify(action === 'retry' ? 'Retrying…' : 'Reprocessing without metadata strip…');
+      notify(action === 'retry' ? t('admin.toastRetrying') : t('admin.toastReprocessing'));
       await loadPhotos(uid);
     } catch (err) {
-      notify(err instanceof Error ? err.message : 'Action failed', 'error');
+      notify(err instanceof Error ? err.message : t('admin.errActionFailed'), 'error');
     }
   };
 
@@ -178,15 +180,15 @@ export function Admin() {
         {/* Album list */}
         <aside className="space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">Albums</h2>
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">{t('admin.albums')}</h2>
             <Button size="sm" onClick={() => setCreateOpen(true)}>
-              New
+              {t('common.new')}
             </Button>
           </div>
           {loading ? (
             <div className="py-8"><Spinner /></div>
           ) : albums.length === 0 ? (
-            <p className="text-sm text-muted">No albums yet.</p>
+            <p className="text-sm text-muted">{t('admin.noAlbums')}</p>
           ) : (
             <ul className="space-y-1">
               {albums.map((a) => (
@@ -212,7 +214,7 @@ export function Admin() {
         <section>
           {!selected ? (
             <div className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-line text-muted">
-              Select or create an album.
+              {t('admin.selectOrCreate')}
             </div>
           ) : (
             <div className="space-y-6">
@@ -220,45 +222,45 @@ export function Admin() {
                 album={selected}
                 onCopy={() => {
                   void navigator.clipboard.writeText(selected.url);
-                  notify('Link copied');
+                  notify(t('admin.toastLinkCopied'));
                 }}
                 onTogglePublic={() => void patch(selected.uid, { is_public: !selected.is_public })}
                 onToggleExif={() => void patch(selected.uid, { exif_strip: !selected.exif_strip })}
                 onRename={() =>
                   setPrompt({
-                    title: 'Rename album',
-                    label: 'Title',
+                    title: t('admin.renameAlbum'),
+                    label: t('admin.fieldTitle'),
                     action: (v) => void patch(selected.uid, { title: v }),
                   })
                 }
                 onSetPassword={() =>
                   setPrompt({
-                    title: 'Set album password',
-                    label: 'New password',
+                    title: t('admin.setAlbumPassword'),
+                    label: t('admin.fieldNewPassword'),
                     action: (v) => void setPassword(selected.uid, v),
                   })
                 }
                 onRemovePassword={() => void setPassword(selected.uid, null)}
                 onRegenerate={() =>
                   setConfirm({
-                    message: 'Generate a new link? The current link will stop working immediately.',
+                    message: t('admin.confirmRegenerate'),
                     action: () => void regenerate(selected.uid),
                   })
                 }
                 onDelete={() =>
                   setConfirm({
-                    message: `Delete “${selected.title}” and all its photos? This cannot be undone.`,
+                    message: t('admin.confirmDeleteAlbum', { title: selected.title }),
                     action: () => void removeAlbum(selected.uid),
                   })
                 }
                 onSetExpiry={() =>
                   setPrompt({
-                    title: 'Set link expiry',
-                    label: 'Days until the link expires',
+                    title: t('admin.setLinkExpiry'),
+                    label: t('admin.fieldExpiryDays'),
                     action: (v) => {
                       const days = Number.parseInt(v, 10);
                       if (!Number.isFinite(days) || days <= 0) {
-                        notify('Enter a positive number of days', 'error');
+                        notify(t('admin.errPositiveDays'), 'error');
                         return;
                       }
                       void patch(selected.uid, { expires_at: Date.now() + days * 86_400_000 });
@@ -271,7 +273,7 @@ export function Admin() {
               <UploadZone
                 uid={selected.uid}
                 onUploaded={(n) => {
-                  notify(`Uploaded ${n} photo${n === 1 ? '' : 's'}`);
+                  notify(t('admin.toastUploaded', { count: n }));
                   void refreshAlbum();
                 }}
                 onError={(m) => notify(m, 'error')}
@@ -285,13 +287,13 @@ export function Admin() {
                   onAccept={(id) =>
                     setConfirm({
                       message:
-                        'Upload this file anyway? It will be served with its original metadata (GPS, camera info) intact — the album’s EXIF stripping is skipped for this one file.',
+                        t('admin.confirmUploadAnyway'),
                       action: () => void resolvePhoto(selected.uid, id, 'accept'),
                     })
                   }
                   onCancel={(id) =>
                     setConfirm({
-                      message: 'Cancel this upload and delete the file? This cannot be undone.',
+                      message: t('admin.confirmCancelUpload'),
                       action: () => void deletePhoto(selected.uid, id),
                     })
                   }
@@ -314,17 +316,17 @@ export function Admin() {
                             <button
                               onClick={() =>
                                 setConfirm({
-                                  message: 'Delete this photo?',
+                                  message: t('admin.confirmDeletePhoto'),
                                   action: () => void deletePhoto(selected.uid, p.id),
                                 })
                               }
                               className="absolute right-1 top-1 hidden rounded-md bg-ink/70 px-2 py-1 text-xs text-canvas group-hover:block"
                             >
-                              Delete
+                              {t('common.delete')}
                             </button>
                           </>
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center" title="Processing…">
+                          <div className="flex h-full w-full items-center justify-center" title={t('gallery.processing')}>
                             <Spinner className="h-5 w-5" />
                           </div>
                         )}
@@ -355,10 +357,11 @@ function FailedPhotos(props: {
   onAccept: (id: number) => void;
   onCancel: (id: number) => void;
 }) {
+  const t = useT();
   return (
     <div className="space-y-2 rounded-2xl border border-danger/40 bg-danger/5 p-4">
       <h3 className="text-sm font-semibold text-danger">
-        {props.photos.length} file{props.photos.length === 1 ? '' : 's'} failed to process
+        {t('admin.failedHeading', { count: props.photos.length })}
       </h3>
       <ul className="space-y-2">
         {props.photos.map((p) => (
@@ -368,17 +371,19 @@ function FailedPhotos(props: {
           >
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{p.name}</p>
-              <p className="text-xs text-danger">Error uploading: {p.error ?? 'Processing failed'}</p>
+              <p className="text-xs text-danger">
+                {t('admin.failedReason', { reason: p.error ?? t('admin.failedFallback') })}
+              </p>
             </div>
             <div className="flex shrink-0 gap-2">
               <Button size="sm" variant="secondary" onClick={() => props.onRetry(p.id)}>
-                Try again
+                {t('admin.tryAgain')}
               </Button>
               <Button size="sm" variant="secondary" onClick={() => props.onAccept(p.id)}>
-                Upload anyway
+                {t('admin.uploadAnyway')}
               </Button>
               <Button size="sm" variant="danger" onClick={() => props.onCancel(p.id)}>
-                Cancel
+                {t('common.cancel')}
               </Button>
             </div>
           </li>
@@ -402,61 +407,66 @@ function AlbumControls(props: {
   onClearExpiry: () => void;
 }) {
   const { album } = props;
+  const { t, formatDate } = useI18n();
   return (
     <div className="rounded-2xl border border-line bg-surface p-5 shadow-soft">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="truncate text-2xl font-semibold tracking-tight">{album.title}</h1>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-            <Badge on={album.is_public}>{album.is_public ? 'Public' : 'Private'}</Badge>
-            {album.has_password && <Badge on>Password</Badge>}
-            <Badge on={album.exif_strip}>{album.exif_strip ? 'EXIF stripped' : 'EXIF kept'}</Badge>
+            <Badge on={album.is_public}>
+              {album.is_public ? t('admin.badgePublic') : t('admin.badgePrivate')}
+            </Badge>
+            {album.has_password && <Badge on>{t('admin.badgePassword')}</Badge>}
+            <Badge on={album.exif_strip}>
+              {album.exif_strip ? t('admin.badgeExifStripped') : t('admin.badgeExifKept')}
+            </Badge>
             {album.expires_at !== null && (
-              <Badge on>Expires {new Date(album.expires_at).toLocaleDateString()}</Badge>
+              <Badge on>{t('admin.badgeExpires', { date: formatDate(album.expires_at) })}</Badge>
             )}
           </div>
         </div>
         <Button variant="danger" size="sm" onClick={props.onDelete}>
-          Delete
+          {t('common.delete')}
         </Button>
       </div>
 
       <div className="mt-4 flex items-center gap-2 rounded-lg bg-canvas px-3 py-2">
         <code className="min-w-0 flex-1 truncate text-sm text-muted">{album.url}</code>
         <Button variant="secondary" size="sm" onClick={props.onCopy}>
-          Copy
+          {t('common.copy')}
         </Button>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Button variant="secondary" size="sm" onClick={props.onRename}>
-          Rename
+          {t('admin.rename')}
         </Button>
         <Button variant="secondary" size="sm" onClick={props.onTogglePublic}>
-          {album.is_public ? 'Make private' : 'Make public'}
+          {album.is_public ? t('admin.makePrivate') : t('admin.makePublic')}
         </Button>
         <Button variant="secondary" size="sm" onClick={props.onToggleExif}>
-          {album.exif_strip ? 'Keep EXIF' : 'Strip EXIF'}
+          {album.exif_strip ? t('admin.keepExif') : t('admin.stripExif')}
         </Button>
         {album.has_password ? (
           <Button variant="secondary" size="sm" onClick={props.onRemovePassword}>
-            Remove password
+            {t('admin.removePassword')}
           </Button>
         ) : (
           <Button variant="secondary" size="sm" onClick={props.onSetPassword}>
-            Set password
+            {t('admin.setPassword')}
           </Button>
         )}
         <Button variant="secondary" size="sm" onClick={props.onRegenerate}>
-          Regenerate link
+          {t('admin.regenerateLink')}
         </Button>
         {album.expires_at !== null ? (
           <Button variant="secondary" size="sm" onClick={props.onClearExpiry}>
-            Clear expiry
+            {t('admin.clearExpiry')}
           </Button>
         ) : (
           <Button variant="secondary" size="sm" onClick={props.onSetExpiry}>
-            Set expiry
+            {t('admin.setExpiry')}
           </Button>
         )}
       </div>
@@ -479,6 +489,7 @@ function CreateAlbumModal(props: {
   onClose: () => void;
   onCreate: (title: string, isPublic: boolean, password: string) => void;
 }) {
+  const t = useT();
   const [title, setTitle] = useState('');
   const [isPublic, setIsPublic] = useState(false);
   const [password, setPassword] = useState('');
@@ -493,25 +504,25 @@ function CreateAlbumModal(props: {
   };
 
   return (
-    <Modal open={props.open} onClose={props.onClose} title="New album">
+    <Modal open={props.open} onClose={props.onClose} title={t('admin.newAlbum')}>
       <form onSubmit={submit} className="space-y-4">
-        <Input label="Title" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required />
+        <Input label={t('admin.fieldTitle')} value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required />
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} />
-          Public (anyone with the link can view)
+          {t('admin.publicCheckbox')}
         </label>
         <Input
-          label="Password (optional)"
+          label={t('admin.fieldPasswordOptional')}
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          placeholder="Leave blank for none"
+          placeholder={t('admin.passwordPlaceholder')}
         />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={props.onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
-          <Button type="submit">Create</Button>
+          <Button type="submit">{t('common.create')}</Button>
         </div>
       </form>
     </Modal>
@@ -522,6 +533,7 @@ function PromptModal(props: {
   prompt: { title: string; label: string; action: (v: string) => void } | null;
   onClose: () => void;
 }) {
+  const t = useT();
   const [value, setValue] = useState('');
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -542,9 +554,9 @@ function PromptModal(props: {
         />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={props.onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
-          <Button type="submit">Save</Button>
+          <Button type="submit">{t('common.save')}</Button>
         </div>
       </form>
     </Modal>
@@ -555,12 +567,13 @@ function ConfirmModal(props: {
   confirm: { message: string; action: () => void } | null;
   onClose: () => void;
 }) {
+  const t = useT();
   return (
-    <Modal open={props.confirm !== null} onClose={props.onClose} title="Are you sure?">
+    <Modal open={props.confirm !== null} onClose={props.onClose} title={t('common.areYouSure')}>
       <p className="text-sm text-muted">{props.confirm?.message}</p>
       <div className="mt-5 flex justify-end gap-2">
         <Button variant="secondary" onClick={props.onClose}>
-          Cancel
+          {t('common.cancel')}
         </Button>
         <Button
           variant="danger"
@@ -569,7 +582,7 @@ function ConfirmModal(props: {
             props.onClose();
           }}
         >
-          Confirm
+          {t('common.confirm')}
         </Button>
       </div>
     </Modal>

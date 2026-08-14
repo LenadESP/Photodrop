@@ -8,18 +8,21 @@ import { ingestFiles } from '../lib/ingest.js';
 import { UidParams, UidPhotoParams } from '../schemas/common.js';
 import { ResolvePhotoBody } from '../schemas/albums.js';
 import type { AlbumRow, ErrorCode, PhotoRow } from '../db/types.js';
+import type { MessageKey } from '../i18n/locales/en.js';
 
-// Human text for a persisted error_code. The raw exiftool/ffmpeg output is only
+// Message key for a persisted error_code. The raw exiftool/ffmpeg output is only
 // ever logged; this is the only failure text that leaves the server. A 'failed'
 // row from before error_code existed (NULL) falls through to the generic case.
-const ERROR_MESSAGES: Record<NonNullable<ErrorCode>, string> = {
-  metadata_timeout: 'Metadata stripping timed out',
-  metadata_failed: 'Metadata stripping failed',
-  poster_failed: 'Could not read the video',
-  unknown: 'Processing failed',
+// Unlike the reply.fail() path this text rides in a 200 body, so it is
+// translated explicitly against the request locale.
+const ERROR_KEYS: Record<NonNullable<ErrorCode>, MessageKey> = {
+  metadata_timeout: 'media.metadataTimeout',
+  metadata_failed: 'media.metadataFailed',
+  poster_failed: 'media.posterFailed',
+  unknown: 'media.processingFailed',
 };
-const errorMessage = (code: ErrorCode): string =>
-  (code && ERROR_MESSAGES[code]) || ERROR_MESSAGES.unknown;
+const errorKey = (code: ErrorCode): MessageKey =>
+  (code && ERROR_KEYS[code]) || ERROR_KEYS.unknown;
 
 export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
   const getOwned = (uid: string, ownerId: number): AlbumRow | undefined =>
@@ -33,13 +36,13 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const { uid } = req.params as Static<typeof UidParams>;
       const album = getOwned(uid, req.user.sub);
-      if (!album) return reply.code(404).send({ error: 'Not found' });
+      if (!album) return reply.fail(404, 'error.notFound');
 
       // Disk-full guard: refuse the upload before writing anything if the data
       // volume is below the free-space floor, so a full disk can't leave SQLite
       // unable to write its WAL (a DB-corruption risk).
       if ((await freeBytes(env.dataDir)) < env.minFreeBytes) {
-        return reply.code(507).send({ error: 'Insufficient storage on the server' });
+        return reply.fail(507, 'upload.insufficientStorage');
       }
 
       // Stream every part to the data volume (never tmpfs). An oversized file or
@@ -54,13 +57,13 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
           err instanceof app.multipartErrors.RequestFileTooLargeError ||
           err instanceof app.multipartErrors.FilesLimitError
         ) {
-          return reply.code(413).send({ error: 'Upload exceeds the size or count limit' });
+          return reply.fail(413, 'upload.limitExceeded');
         }
         throw err;
       }
 
       const saved = req.savedRequestFiles ?? [];
-      if (saved.length === 0) return reply.code(400).send({ error: 'No files uploaded' });
+      if (saved.length === 0) return reply.fail(400, 'upload.noFiles');
 
       // Validate + commit via the shared ingest path (same gate the resumable
       // chunked route uses).
@@ -69,7 +72,7 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
         uid,
         saved.map((f) => ({ tmpPath: f.filepath, originalName: f.filename })),
       );
-      if (!outcome.ok) return reply.code(outcome.status).send({ error: outcome.error });
+      if (!outcome.ok) return reply.fail(outcome.status, outcome.key, { params: outcome.params });
       return reply.code(202).send({ uploaded: outcome.count, pending: true });
     },
   );
@@ -79,11 +82,11 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: app.requireAdmin, schema: { params: UidPhotoParams } },
     async (req, reply) => {
       const { uid, id } = req.params as Static<typeof UidPhotoParams>;
-      if (!getOwned(uid, req.user.sub)) return reply.code(404).send({ error: 'Not found' });
+      if (!getOwned(uid, req.user.sub)) return reply.fail(404, 'error.notFound');
       const photo = app.db.prepare('SELECT * FROM photos WHERE id = ? AND album_uid = ?').get(id, uid) as
         | PhotoRow
         | undefined;
-      if (!photo) return reply.code(404).send({ error: 'Not found' });
+      if (!photo) return reply.fail(404, 'error.notFound');
 
       app.db.prepare('DELETE FROM photos WHERE id = ? AND album_uid = ?').run(id, uid);
       for (const p of [
@@ -112,7 +115,7 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: app.requireAdmin, schema: { params: UidParams } },
     async (req, reply) => {
       const { uid } = req.params as Static<typeof UidParams>;
-      if (!getOwned(uid, req.user.sub)) return reply.code(404).send({ error: 'Not found' });
+      if (!getOwned(uid, req.user.sub)) return reply.fail(404, 'error.notFound');
 
       const photos = app.db
         .prepare(
@@ -133,7 +136,9 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
           status: p.thumb_status, // 'pending' | 'ready' | 'failed'
           ready: p.thumb_status === 'ready',
           failed: p.thumb_status === 'failed',
-          error: p.thumb_status === 'failed' ? errorMessage(p.error_code) : null,
+          error: p.thumb_status === 'failed' ? req.t(errorKey(p.error_code)) : null,
+          // Stable identity for the failure, independent of the rendered text.
+          errorCode: p.thumb_status === 'failed' ? errorKey(p.error_code) : null,
         })),
       };
     },
@@ -149,14 +154,14 @@ export async function adminUploadRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const { uid, id } = req.params as Static<typeof UidPhotoParams>;
       const { action } = req.body as Static<typeof ResolvePhotoBody>;
-      if (!getOwned(uid, req.user.sub)) return reply.code(404).send({ error: 'Not found' });
+      if (!getOwned(uid, req.user.sub)) return reply.fail(404, 'error.notFound');
 
       const photo = app.db
         .prepare('SELECT * FROM photos WHERE id = ? AND album_uid = ?')
         .get(id, uid) as PhotoRow | undefined;
-      if (!photo) return reply.code(404).send({ error: 'Not found' });
+      if (!photo) return reply.fail(404, 'error.notFound');
       if (photo.thumb_status !== 'failed') {
-        return reply.code(409).send({ error: 'Photo is not in a failed state' });
+        return reply.fail(409, 'media.photoNotFailed');
       }
 
       // accept = "upload anyway": reprocess WITHOUT the metadata strip, so the

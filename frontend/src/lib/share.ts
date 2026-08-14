@@ -1,6 +1,8 @@
 // Photo delivery helpers: the single-photo "Save to Photos" via the Web Share API
 // (files), and the bulk "Download all" as direct per-file browser downloads.
 
+import { tr } from '../i18n';
+
 export function canShareFiles(): boolean {
   return (
     typeof navigator !== 'undefined' &&
@@ -11,7 +13,7 @@ export function canShareFiles(): boolean {
 
 export async function fetchAsFile(url: string, filename: string): Promise<File> {
   const res = await fetch(url, { credentials: 'include' });
-  if (!res.ok) throw new Error('Download failed');
+  if (!res.ok) throw new Error(tr('upload.downloadFailed'));
   const blob = await res.blob();
   return new File([blob], filename, { type: blob.type });
 }

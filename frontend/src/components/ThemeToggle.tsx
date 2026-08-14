@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from '../i18n';
 
 function initialDark(): boolean {
   const saved = localStorage.getItem('theme');
@@ -9,6 +10,7 @@ function initialDark(): boolean {
 
 export function ThemeToggle() {
   const [dark, setDark] = useState(initialDark);
+  const t = useT();
 
   const toggle = () => {
     const next = !dark;
@@ -22,8 +24,8 @@ export function ThemeToggle() {
   return (
     <button
       onClick={toggle}
-      aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-      title={dark ? 'Light mode' : 'Dark mode'}
+      aria-label={dark ? t('theme.switchToLight') : t('theme.switchToDark')}
+      title={dark ? t('theme.lightMode') : t('theme.darkMode')}
       className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-ink transition-colors hover:bg-ink/5"
     >
       {dark ? (

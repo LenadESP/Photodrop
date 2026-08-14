@@ -5,14 +5,18 @@ import { useAuth, type User } from '../context/auth';
 import { Button } from '../components/Button';
 import { Input } from '../components/Input';
 import { TopBar } from '../components/TopBar';
+import { useT, tr } from '../i18n';
 
 type Phase = 'password' | 'enroll' | 'mfa';
 
 function errMsg(err: unknown): string {
-  return isApiError(err) ? err.message : 'Something went wrong';
+  // A server-side message is already in the request's language (the API
+  // negotiates Accept-Language); only the no-response fallback is ours.
+  return isApiError(err) ? err.message : tr('common.somethingWentWrong');
 }
 
 export function Login() {
+  const t = useT();
   const { setUser } = useAuth();
   const navigate = useNavigate();
 
@@ -75,11 +79,11 @@ export function Login() {
           {phase === 'password' && (
             <form onSubmit={submitPassword} className="space-y-4">
               <div>
-                <h1 className="text-xl font-semibold tracking-tight">Log in</h1>
-                <p className="mt-1 text-sm text-muted">Enter your credentials to continue.</p>
+                <h1 className="text-xl font-semibold tracking-tight">{t('login.title')}</h1>
+                <p className="mt-1 text-sm text-muted">{t('login.subtitle')}</p>
               </div>
               <Input
-                label="Username"
+                label={t('login.username')}
                 autoComplete="username"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -87,7 +91,7 @@ export function Login() {
                 required
               />
               <Input
-                label="Password"
+                label={t('login.password')}
                 type="password"
                 autoComplete="current-password"
                 value={password}
@@ -96,7 +100,7 @@ export function Login() {
               />
               {error && <p className="text-sm text-danger">{error}</p>}
               <Button type="submit" className="w-full" disabled={busy}>
-                {busy ? 'Checking…' : 'Continue'}
+                {busy ? t('login.checking') : t('login.continue')}
               </Button>
             </form>
           )}
@@ -104,23 +108,23 @@ export function Login() {
           {phase === 'enroll' && enroll && (
             <form onSubmit={submitCode('/api/auth/totp/activate')} className="space-y-4">
               <div>
-                <h1 className="text-xl font-semibold tracking-tight">Set up two-factor</h1>
+                <h1 className="text-xl font-semibold tracking-tight">{t('login.enrollTitle')}</h1>
                 <p className="mt-1 text-sm text-muted">
-                  Scan this with your authenticator app, then enter the 6-digit code.
+                  {t('login.enrollSubtitle')}
                 </p>
               </div>
               <div className="flex justify-center">
                 <img
                   src={enroll.qrDataUrl}
-                  alt="TOTP QR code"
+                  alt={t('login.qrAlt')}
                   className="h-44 w-44 rounded-lg border border-line"
                 />
               </div>
               <p className="break-all text-center text-xs text-muted">
-                Or enter manually: <span className="font-mono">{enroll.secret}</span>
+                {t('login.orEnterManually')} <span className="font-mono">{enroll.secret}</span>
               </p>
               <Input
-                label="6-digit code"
+                label={t('login.code')}
                 inputMode="numeric"
                 pattern="[0-9]*"
                 maxLength={6}
@@ -131,7 +135,7 @@ export function Login() {
               />
               {error && <p className="text-sm text-danger">{error}</p>}
               <Button type="submit" className="w-full" disabled={busy}>
-                {busy ? 'Verifying…' : 'Activate & continue'}
+                {busy ? t('login.verifying') : t('login.activateContinue')}
               </Button>
             </form>
           )}
@@ -139,13 +143,13 @@ export function Login() {
           {phase === 'mfa' && (
             <form onSubmit={submitCode('/api/auth/totp/verify')} className="space-y-4">
               <div>
-                <h1 className="text-xl font-semibold tracking-tight">Two-factor</h1>
+                <h1 className="text-xl font-semibold tracking-tight">{t('login.mfaTitle')}</h1>
                 <p className="mt-1 text-sm text-muted">
-                  Enter the 6-digit code from your authenticator app.
+                  {t('login.mfaSubtitle')}
                 </p>
               </div>
               <Input
-                label="6-digit code"
+                label={t('login.code')}
                 inputMode="numeric"
                 pattern="[0-9]*"
                 maxLength={6}
@@ -156,7 +160,7 @@ export function Login() {
               />
               {error && <p className="text-sm text-danger">{error}</p>}
               <Button type="submit" className="w-full" disabled={busy}>
-                {busy ? 'Verifying…' : 'Verify'}
+                {busy ? t('login.verifying') : t('login.verify')}
               </Button>
             </form>
           )}

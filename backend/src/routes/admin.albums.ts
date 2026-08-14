@@ -90,7 +90,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const { uid } = req.params as Static<typeof UidParams>;
       const body = req.body as Static<typeof PatchAlbumBody>;
-      if (!getOwned(uid, req.user.sub)) return reply.code(404).send({ error: 'Not found' });
+      if (!getOwned(uid, req.user.sub)) return reply.fail(404, 'error.notFound');
 
       const sets: string[] = [];
       const vals: (string | number | null)[] = [];
@@ -126,7 +126,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const { uid } = req.params as Static<typeof UidParams>;
       const body = req.body as Static<typeof SetPasswordBody>;
-      if (!getOwned(uid, req.user.sub)) return reply.code(404).send({ error: 'Not found' });
+      if (!getOwned(uid, req.user.sub)) return reply.fail(404, 'error.notFound');
 
       const hash = body.password === null ? null : await hashSecret(body.password);
       app.db
@@ -143,7 +143,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
     { ...guard, schema: { params: UidParams } },
     async (req, reply) => {
       const { uid } = req.params as Static<typeof UidParams>;
-      if (!getOwned(uid, req.user.sub)) return reply.code(404).send({ error: 'Not found' });
+      if (!getOwned(uid, req.user.sub)) return reply.fail(404, 'error.notFound');
 
       const newUid = newAlbumUid();
       const oldDir = albumDir(uid);
@@ -166,7 +166,7 @@ export async function adminAlbumRoutes(app: FastifyInstance): Promise<void> {
     { ...guard, schema: { params: UidParams } },
     async (req, reply) => {
       const { uid } = req.params as Static<typeof UidParams>;
-      if (!getOwned(uid, req.user.sub)) return reply.code(404).send({ error: 'Not found' });
+      if (!getOwned(uid, req.user.sub)) return reply.fail(404, 'error.notFound');
 
       app.db.prepare('DELETE FROM albums WHERE uid = ? AND owner_id = ?').run(uid, req.user.sub);
       rmSync(albumDir(uid), { recursive: true, force: true });

@@ -67,15 +67,15 @@ export async function adminUploadSessionRoutes(app: FastifyInstance): Promise<vo
     async (req, reply) => {
       const { uid } = req.params as Static<typeof UidParams>;
       const { name, size } = req.body as Static<typeof CreateUploadBody>;
-      if (!getOwnedAlbum(uid, req.user.sub)) return reply.code(404).send({ error: 'Not found' });
+      if (!getOwnedAlbum(uid, req.user.sub)) return reply.fail(404, 'error.notFound');
 
       if (size > env.maxUploadBytes) {
-        return reply.code(413).send({ error: 'File exceeds the maximum upload size' });
+        return reply.fail(413, 'upload.fileTooLarge');
       }
       // Refuse before staging anything if the volume can't hold the file plus the
       // free-space floor — the assembled copy briefly doubles it on disk.
       if ((await freeBytes(env.dataDir)) < env.minFreeBytes + size * 2) {
-        return reply.code(507).send({ error: 'Insufficient storage on the server' });
+        return reply.fail(507, 'upload.insufficientStorage');
       }
 
       const id = newAlbumUid(); // same opaque 14-char shape as an album uid
@@ -101,7 +101,7 @@ export async function adminUploadSessionRoutes(app: FastifyInstance): Promise<vo
     async (req, reply) => {
       const { id } = req.params as Static<typeof UploadSessionParams>;
       const session = getOwnedSession(id, req.user.sub);
-      if (!session) return reply.code(404).send({ error: 'Not found' });
+      if (!session) return reply.fail(404, 'error.notFound');
       return {
         id: session.id,
         partSize: session.part_size,
@@ -118,9 +118,9 @@ export async function adminUploadSessionRoutes(app: FastifyInstance): Promise<vo
     async (req, reply) => {
       const { id, part } = req.params as Static<typeof UploadPartParams>;
       const session = getOwnedSession(id, req.user.sub);
-      if (!session) return reply.code(404).send({ error: 'Not found' });
+      if (!session) return reply.fail(404, 'error.notFound');
       if (part >= session.total_parts) {
-        return reply.code(400).send({ error: 'Part number out of range' });
+        return reply.fail(400, 'upload.partOutOfRange');
       }
 
       // Every part is exactly part_size except the last, which is the remainder.
@@ -161,7 +161,7 @@ export async function adminUploadSessionRoutes(app: FastifyInstance): Promise<vo
       } catch (err) {
         rmSync(partial, { force: true });
         app.log.warn({ err, sessionId: session.id, part }, 'upload: part write failed');
-        return reply.code(400).send({ error: 'Part upload failed' });
+        return reply.fail(400, 'upload.partFailed');
       }
       if (written !== expected) {
         rmSync(partial, { force: true });
@@ -191,20 +191,18 @@ export async function adminUploadSessionRoutes(app: FastifyInstance): Promise<vo
     async (req, reply) => {
       const { id } = req.params as Static<typeof UploadSessionParams>;
       const session = getOwnedSession(id, req.user.sub);
-      if (!session) return reply.code(404).send({ error: 'Not found' });
+      if (!session) return reply.fail(404, 'error.notFound');
 
       // The album may have been deleted while the upload was in flight.
       if (!getOwnedAlbum(session.album_uid, req.user.sub)) {
         destroySession(session);
-        return reply.code(404).send({ error: 'Not found' });
+        return reply.fail(404, 'error.notFound');
       }
 
       const received = receivedParts(session.id);
       if (received.length !== session.total_parts) {
-        return reply.code(409).send({
-          error: 'Upload incomplete',
-          received,
-          totalParts: session.total_parts,
+        return reply.fail(409, 'upload.incomplete', {
+          extra: { received, totalParts: session.total_parts },
         });
       }
 
@@ -229,13 +227,13 @@ export async function adminUploadSessionRoutes(app: FastifyInstance): Promise<vo
         out.destroy();
         rmSync(assembled, { force: true });
         app.log.error({ err, sessionId: session.id }, 'upload: assembly failed');
-        return reply.code(500).send({ error: 'Failed to assemble upload' });
+        return reply.fail(500, 'upload.assembleFailed');
       }
 
       if (statSync(assembled).size !== session.total_bytes) {
         rmSync(assembled, { force: true });
         destroySession(session);
-        return reply.code(400).send({ error: 'Assembled file does not match the declared size' });
+        return reply.fail(400, 'upload.sizeMismatch');
       }
 
       // Same validation and commit path as the multipart batch route.
@@ -245,7 +243,7 @@ export async function adminUploadSessionRoutes(app: FastifyInstance): Promise<vo
       if (!outcome.ok) {
         rmSync(assembled, { force: true });
         destroySession(session);
-        return reply.code(outcome.status).send({ error: outcome.error });
+        return reply.fail(outcome.status, outcome.key, { params: outcome.params });
       }
 
       destroySession(session);
@@ -260,7 +258,7 @@ export async function adminUploadSessionRoutes(app: FastifyInstance): Promise<vo
     async (req, reply) => {
       const { id } = req.params as Static<typeof UploadSessionParams>;
       const session = getOwnedSession(id, req.user.sub);
-      if (!session) return reply.code(404).send({ error: 'Not found' });
+      if (!session) return reply.fail(404, 'error.notFound');
       destroySession(session);
       return { ok: true };
     },

@@ -6,6 +6,8 @@ import { Input } from '../components/Input';
 import { FullPageSpinner } from '../components/Spinner';
 import { Lightbox } from '../components/Lightbox';
 import { ThemeToggle } from '../components/ThemeToggle';
+import { LangToggle } from '../components/LangToggle';
+import { useT } from '../i18n';
 import { Spinner } from '../components/Spinner';
 import { downloadAlbumZip, downloadOriginalsSequential, type DownloadItem } from '../lib/share';
 
@@ -38,6 +40,7 @@ interface AlbumMeta {
 type View = 'loading' | 'locked' | 'ready' | 'error';
 
 export function Gallery() {
+  const t = useT();
   const { uid = '' } = useParams();
   const [view, setView] = useState<View>('loading');
   const [meta, setMeta] = useState<AlbumMeta | null>(null);
@@ -56,13 +59,13 @@ export function Gallery() {
     } catch (err) {
       if (isApiError(err) && err.status === 401) {
         const data = err.data as { title?: string } | null;
-        setTitle(data?.title ?? 'Private album');
+        setTitle(data?.title ?? t('gallery.privateAlbum'));
         setView('locked');
       } else {
         setView('error');
       }
     }
-  }, [uid]);
+  }, [uid, t]);
 
   useEffect(() => {
     void load();
@@ -87,7 +90,7 @@ export function Gallery() {
       setView('loading');
       await load();
     } catch (err) {
-      setError(isApiError(err) ? err.message : 'Wrong password');
+      setError(isApiError(err) ? err.message : t('gallery.wrongPassword'));
     }
   };
 
@@ -97,8 +100,8 @@ export function Gallery() {
     return (
       <div className="flex min-h-full items-center justify-center px-6 text-center">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Album not found</h1>
-          <p className="mt-2 text-muted">This link may have expired or been revoked.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">{t('gallery.notFoundTitle')}</h1>
+          <p className="mt-2 text-muted">{t('gallery.notFoundBody')}</p>
         </div>
       </div>
     );
@@ -110,10 +113,10 @@ export function Gallery() {
         <form onSubmit={unlock} className="w-full max-w-sm rounded-2xl border border-line bg-surface p-7 shadow-soft space-y-4">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
-            <p className="mt-1 text-sm text-muted">This album is password-protected.</p>
+            <p className="mt-1 text-sm text-muted">{t('gallery.passwordProtected')}</p>
           </div>
           <Input
-            label="Password"
+            label={t('login.password')}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -122,7 +125,7 @@ export function Gallery() {
           />
           {error && <p className="text-sm text-danger">{error}</p>}
           <Button type="submit" className="w-full">
-            View album
+            {t('gallery.viewAlbum')}
           </Button>
         </form>
       </div>
@@ -162,8 +165,8 @@ export function Gallery() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
           <p className="text-sm text-muted">
-            {photos.length} photo{photos.length === 1 ? '' : 's'}
-            {pendingCount > 0 && ` · ${pendingCount} processing…`}
+            {t('gallery.photoCount', { count: photos.length })}
+            {pendingCount > 0 && ` · ${t('gallery.processingCount', { count: pendingCount })}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -172,28 +175,29 @@ export function Gallery() {
               {dlProgress ? <Spinner className="h-4 w-4" /> : null}
               {dlProgress
                 ? dlProgress.started === 0
-                  ? 'Starting…'
-                  : `Downloading ${dlProgress.started} / ${dlProgress.total}…`
-                : 'Download all'}
+                  ? t('gallery.starting')
+                  : t('gallery.downloading', { started: dlProgress.started, total: dlProgress.total })
+                : t('gallery.downloadAll')}
             </Button>
           )}
           {readyPhotos.length > 0 && (
             <Button variant="secondary" size="sm" onClick={() => downloadAlbumZip(uid)} disabled={!!dlProgress}>
-              Download ZIP
+              {t('gallery.downloadZip')}
             </Button>
           )}
+          <LangToggle />
           <ThemeToggle />
         </div>
       </header>
 
       {dlProgress && (
         <p className="px-4 pb-1 text-xs text-muted sm:px-6">
-          Your browser may ask to allow multiple downloads — tap Allow to save them all.
+          {t('gallery.multipleDownloadsHint')}
         </p>
       )}
 
       {photos.length === 0 ? (
-        <p className="px-6 py-16 text-center text-muted">This album is empty.</p>
+        <p className="px-6 py-16 text-center text-muted">{t('gallery.empty')}</p>
       ) : (
         <div className="grid grid-cols-2 gap-1.5 px-4 py-1 sm:grid-cols-3 sm:px-6 md:grid-cols-4 lg:grid-cols-5 lg:px-8">
           {photos.map((p) =>
@@ -230,7 +234,7 @@ export function Gallery() {
               <div
                 key={p.id}
                 className="flex aspect-square items-center justify-center bg-line/40"
-                title="Processing…"
+                title={t('gallery.processing')}
               >
                 <Spinner className="h-5 w-5" />
               </div>

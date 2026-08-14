@@ -54,7 +54,12 @@ backend/
       disk.ts              free-space probe + usage% for the disk guard / alert
       notify.ts            best-effort ntfy push (disk alert)
       ingest.ts            shared validate + commit path for BOTH upload routes
+    i18n/
+      index.ts             locale registry, Accept-Language negotiation, t()
+      locales/en.ts        source catalogue (every other locale is typed against it)
+      locales/es.ts        Spanish
     plugins/
+      i18n.ts              req.locale / req.t + reply.fail(); registered FIRST
       security.ts          helmet + global rate limit
       sqlite.ts            db decorator, runs migrations + admin seed
       auth.ts              @fastify/cookie + @fastify/jwt, scope + token_version guards
@@ -76,9 +81,14 @@ backend/
 frontend/
   src/
     pages/                 Home, Login, Gallery, Admin
-    components/            Lightbox, UploadZone, TopBar, Modal, Toast, ThemeToggle, …
+    components/            Lightbox, UploadZone, TopBar, Modal, Toast, ThemeToggle,
+                           LangToggle, …
     context/auth.tsx       session state
-    lib/api.ts             fetch wrapper (credentials + CSRF header)
+    i18n/
+      index.tsx            provider + useT/useI18n, locale detection, plurals
+      locales/en.ts        source catalogue (every other locale is typed against it)
+      locales/es.ts        Spanish
+    lib/api.ts             fetch wrapper (credentials + CSRF + Accept-Language)
     lib/share.ts           Web Share API "Save to Photos" + download fallbacks
 Dockerfile                 multi-stage: build SPA → build backend → slim runtime
 compose.yaml               portable base: single service, hardened, standalone-ready
@@ -387,6 +397,49 @@ full-size originals stay `private` — never shared-cached, or the URL alone wou
 the access gate. (Edge caching of public thumbnails is completed by a Cloudflare cache
 rule for `/api/a/*/thumb/*`, configured in the dashboard — infra outside this repo; the
 app's part is the headers.)
+
+## Localisation
+
+Two languages ship (English, Spanish), but the interesting part is that the
+translation is split across both packages — because the SPA renders API error
+text verbatim (`lib/api.ts` lifts `data.error` into the thrown `Error`, and the
+UI shows `err.message`). Translating only the frontend would leave every failure
+in English inside a Spanish UI.
+
+So each side owns a disjoint half, and neither catalogue duplicates the other:
+
+- **Frontend** (`src/i18n/`) owns the UI chrome — labels, buttons, confirmations,
+  toasts. `main.tsx` resolves the locale before React mounts (saved choice →
+  `navigator.languages` → English) and sets `<html lang>`; `I18nProvider` exposes
+  `t()`, `formatDate()` and the toggle. Plain modules under `lib/` that throw
+  user-visible Errors use `tr()`, which reads the same active locale without a hook.
+- **Backend** (`src/i18n/` + `plugins/i18n.ts`) owns every message that leaves the
+  server. `negotiateLocale` parses `Accept-Language` (q-values, primary subtag, so
+  `es-419` → `es`); `reply.fail(status, key, opts?)` is the single choke point that
+  translates and attaches the stable `code`. The plugin is registered **first** in
+  `buildApp()` — the rate limiter and the CSRF guard both reply from their own
+  `onRequest` hooks, and hooks run in registration order, so `req.locale` has to be
+  set before either runs.
+
+Three things are load-bearing and easy to break:
+
+- **The client sets `Accept-Language` explicitly** (`lib/api.ts`, and the XHR path
+  in `apiUpload`) rather than letting the browser send its own. The header must
+  follow the *chosen* language, not the device's. Image `src` attributes and direct
+  browser downloads can't carry it — they return bytes, not text, so it doesn't matter.
+- **`/api/` responses send `Vary: Accept-Language`.** The same URL now yields
+  different bytes per language; without this the reverse proxy can serve one
+  language's error text to a request that asked for the other.
+- **A request with no `Accept-Language` gets English.** curl and the `test/`
+  harnesses therefore see exactly the strings they saw before.
+
+Adding a language is a catalogue file plus one registry entry (`CATALOGUES`) in
+each package. Both catalogues are typed against the English source, so a missing
+key — or a plural flattened into a plain string — fails `tsc` rather than
+rendering blank. Plural forms are keyed by CLDR category and chosen with
+`Intl.PluralRules`, so a language with more than `one`/`other` needs no code change.
+
+Album titles, filenames and passwords are user data and are never translated.
 
 ## Design decisions & gotchas
 

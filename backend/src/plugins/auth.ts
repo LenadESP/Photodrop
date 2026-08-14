@@ -62,11 +62,11 @@ export default fp(async function authPlugin(app: FastifyInstance): Promise<void>
     try {
       await req.jwtVerify({ onlyCookie: true });
     } catch {
-      await reply.code(401).send({ error: 'Unauthorized' });
+      await reply.fail(401, 'error.unauthorized');
       return false;
     }
     if (req.user.scope !== scope) {
-      await reply.code(401).send({ error: 'Unauthorized' });
+      await reply.fail(401, 'error.unauthorized');
       return false;
     }
     // Session tokens are revocable: their version must still match the user's
@@ -77,7 +77,7 @@ export default fp(async function authPlugin(app: FastifyInstance): Promise<void>
         | { token_version: number }
         | undefined;
       if (!row || (req.user.tv ?? 0) !== row.token_version) {
-        await reply.code(401).send({ error: 'Unauthorized' });
+        await reply.fail(401, 'error.unauthorized');
         return false;
       }
     }
@@ -99,7 +99,7 @@ export default fp(async function authPlugin(app: FastifyInstance): Promise<void>
   app.decorate('requireAdmin', async (req: FastifyRequest, reply: FastifyReply) => {
     if (!(await verifyScope(req, reply, 'session'))) return;
     if (req.user.role !== 'admin') {
-      await reply.code(403).send({ error: 'Forbidden' });
+      await reply.fail(403, 'error.forbidden');
     }
   });
 });

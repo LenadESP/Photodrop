@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyError, type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import { env } from './env.js';
 import { closeExif } from './lib/exif.js';
+import i18nPlugin from './plugins/i18n.js';
+import type { MessageKey } from './i18n/locales/en.js';
 import securityPlugin from './plugins/security.js';
 import sqlitePlugin from './plugins/sqlite.js';
 import authPlugin from './plugins/auth.js';
@@ -39,8 +41,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   });
 
-  // Order matters: headers + rate-limit, then DB, then auth (cookie/jwt), then
-  // the global CSRF guard, then routes (so the guard applies to all of them).
+  // Order matters: locale first (the rate limiter and CSRF guard both reply with
+  // translated errors from their own hooks), then headers + rate-limit, then DB,
+  // then auth (cookie/jwt), then the global CSRF guard, then routes (so the
+  // guard applies to all of them).
+  await app.register(i18nPlugin);
   await app.register(securityPlugin);
   await app.register(sqlitePlugin);
   await app.register(authPlugin);
@@ -56,6 +61,25 @@ export async function buildApp(): Promise<FastifyInstance> {
       files: env.maxFilesPerUpload,
       headerPairs: 200,
     },
+  });
+
+  // Anything that reaches the handler unclaimed — a TypeBox validation
+  // rejection, a multipart size limit, an unexpected throw — is emitted by the
+  // framework in English and in its own shape. Normalise it onto the same
+  // { error, code } envelope every route uses, translated, without changing any
+  // status code. Route errors never land here: they go out via reply.fail().
+  app.setErrorHandler((err: FastifyError, req, reply) => {
+    const status = err.statusCode ?? 500;
+    if (status >= 500) req.log.error({ err }, 'unhandled request error');
+
+    const key: MessageKey =
+      status === 413
+        ? 'upload.fileTooLarge'
+        : status >= 500
+          ? 'error.serverError'
+          : 'error.badRequest';
+
+    return reply.code(status).send({ error: req.t(key), code: key });
   });
 
   // exiftool spawns a long-lived helper process; shut it down cleanly.
@@ -97,7 +121,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       if (req.method === 'GET' && !req.url.startsWith('/api/')) {
         return reply.sendFile('index.html');
       }
-      return reply.code(404).send({ error: 'Not found' });
+      return reply.fail(404, 'error.notFound');
     });
   }
 

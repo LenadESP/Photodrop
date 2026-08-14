@@ -1,3 +1,5 @@
+import { getActiveLocale, tr } from '../i18n';
+
 export interface ApiError extends Error {
   status: number;
   data: unknown;
@@ -59,7 +61,12 @@ async function refreshSession(): Promise<boolean> {
 
 export async function api<T = unknown>(path: string, opts: RequestOptions = {}): Promise<T> {
   const method = opts.method ?? 'GET';
-  const headers: Record<string, string> = {};
+  // All API error text is rendered server-side, so every request states the
+  // language the UI is currently in. This has to be the *chosen* locale, not the
+  // browser's own Accept-Language: someone whose device is English but who
+  // switched the app to Spanish must not get English errors in a Spanish UI.
+  // (Accept-Language is CORS-safelisted, so setting it here is allowed.)
+  const headers: Record<string, string> = { 'Accept-Language': getActiveLocale() };
   let body: BodyInit | undefined;
 
   if (opts.raw) {
@@ -98,7 +105,7 @@ export async function api<T = unknown>(path: string, opts: RequestOptions = {}):
     const message =
       (data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
         ? data.error
-        : res.statusText) || 'Request failed';
+        : res.statusText) || tr('common.somethingWentWrong');
     const err = new Error(message) as ApiError;
     err.status = res.status;
     err.data = data;
@@ -132,6 +139,7 @@ export async function apiUpload<T = unknown>(
       xhr.open(method, path);
       xhr.withCredentials = true;
       xhr.setRequestHeader('X-CSRF-Token', csrf);
+      xhr.setRequestHeader('Accept-Language', getActiveLocale());
       // A Blob part is raw bytes; FormData sets its own multipart content-type.
       if (body instanceof Blob) xhr.setRequestHeader('Content-Type', 'application/octet-stream');
       if (opts.onProgress) {
@@ -140,10 +148,10 @@ export async function apiUpload<T = unknown>(
         };
       }
       xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
-      xhr.onerror = () => reject(new Error('Network error during upload'));
-      xhr.onabort = () => reject(new Error('Upload cancelled'));
+      xhr.onerror = () => reject(new Error(tr('upload.networkError')));
+      xhr.onabort = () => reject(new Error(tr('upload.cancelled')));
       if (opts.signal) {
-        if (opts.signal.aborted) return reject(new Error('Upload cancelled'));
+        if (opts.signal.aborted) return reject(new Error(tr('upload.cancelled')));
         opts.signal.addEventListener('abort', () => xhr.abort(), { once: true });
       }
       xhr.send(body);
@@ -165,7 +173,7 @@ export async function apiUpload<T = unknown>(
     const message =
       data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
         ? data.error
-        : 'Upload failed';
+        : tr('upload.failed');
     const err = new Error(message) as ApiError;
     err.status = res.status;
     err.data = data;

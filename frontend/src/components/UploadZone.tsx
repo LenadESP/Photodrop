@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { uploadResumable } from '../lib/upload';
+import { useT } from '../i18n';
 import { Spinner } from './Spinner';
 
 interface Props {
@@ -17,6 +18,7 @@ interface Props {
 // on session creation (413), so there's no client-side cap to drift.
 
 export function UploadZone({ uid, onUploaded, onError }: Props) {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; pct: number } | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
@@ -49,7 +51,7 @@ export function UploadZone({ uid, onUploaded, onError }: Props) {
             // One file failing must not abandon the rest of the drop.
             failures += 1;
             onError(
-              `${file.name}: ${err instanceof Error ? err.message : 'upload failed'}`,
+              `${file.name}: ${err instanceof Error ? err.message : t('upload.failed')}`,
             );
           }
           sentBase += file.size;
@@ -66,7 +68,7 @@ export function UploadZone({ uid, onUploaded, onError }: Props) {
         setDetail(null);
       }
     },
-    [uid, onUploaded, onError],
+    [uid, onUploaded, onError, t],
   );
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -97,18 +99,18 @@ export function UploadZone({ uid, onUploaded, onError }: Props) {
         <div className="flex flex-col items-center gap-1 text-muted">
           <div className="flex items-center gap-2">
             <Spinner />
-            {progress ? `Uploading ${progress.pct}%…` : 'Uploading…'}
+            {progress ? t('upload.uploadingPct', { pct: progress.pct }) : t('upload.uploading')}
           </div>
           {progress && (
             <span className="text-xs">
-              {detail ?? `${progress.done}/${progress.total} files`}
+              {detail ?? t('upload.fileProgress', { done: progress.done, total: progress.total })}
             </span>
           )}
         </div>
       ) : (
         <>
-          <p className="font-medium">Drop photos or video here</p>
-          <p className="text-sm text-muted">or click to choose — JPG, PNG, WebP, MP4, MOV</p>
+          <p className="font-medium">{t('upload.drop')}</p>
+          <p className="text-sm text-muted">{t('upload.chooseHint')}</p>
         </>
       )}
     </div>

@@ -5,6 +5,7 @@ import { originalsDir, safeJoin } from './paths.js';
 import { probeImage } from './images.js';
 import { probeVideo } from './video.js';
 import type { MediaKind, PreviewStatus } from '../db/types.js';
+import type { MessageKey } from '../i18n/locales/en.js';
 
 export interface IngestFile {
   // A file already staged on the data volume (same filesystem as albums/, so the
@@ -13,9 +14,16 @@ export interface IngestFile {
   originalName: string;
 }
 
+// A rejection carries a message key, not rendered text: ingest runs below the
+// HTTP layer and has no locale. The route translates it against req.locale.
 export type IngestOutcome =
   | { ok: true; count: number }
-  | { ok: false; status: number; error: string };
+  | {
+      ok: false;
+      status: number;
+      key: MessageKey;
+      params?: Record<string, string | number>;
+    };
 
 interface Prepared {
   tmpOriginal: string;
@@ -54,7 +62,7 @@ export async function ingestFiles(
   uid: string,
   files: IngestFile[],
 ): Promise<IngestOutcome> {
-  if (files.length === 0) return { ok: false, status: 400, error: 'No files uploaded' };
+  if (files.length === 0) return { ok: false, status: 400, key: 'upload.noFiles' };
 
   const prepared: Prepared[] = [];
   for (const file of files) {
@@ -94,7 +102,12 @@ export async function ingestFiles(
       continue;
     }
 
-    return { ok: false, status: 415, error: `Unsupported or invalid file: ${file.originalName}` };
+    return {
+      ok: false,
+      status: 415,
+      key: 'upload.unsupportedFile',
+      params: { name: file.originalName },
+    };
   }
 
   const moved: string[] = [];

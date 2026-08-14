@@ -1,4 +1,5 @@
 import { api, apiUpload } from './api';
+import { tr } from '../i18n';
 
 // Resumable chunked upload for a single file.
 //
@@ -38,7 +39,7 @@ async function putPart(
 ): Promise<void> {
   let lastError: unknown;
   for (let attempt = 0; attempt < PART_RETRIES; attempt += 1) {
-    if (signal?.aborted) throw new Error('Upload cancelled');
+    if (signal?.aborted) throw new Error(tr('upload.cancelled'));
     try {
       await apiUpload(`/api/admin/uploads/${sessionId}/parts/${partNo}`, blob, {
         method: 'PUT',
@@ -51,7 +52,7 @@ async function putPart(
       if (attempt < PART_RETRIES - 1) await delay(RETRY_BASE_MS * 2 ** attempt);
     }
   }
-  throw lastError instanceof Error ? lastError : new Error('Part upload failed');
+  throw lastError instanceof Error ? lastError : new Error(tr('upload.partFailed'));
 }
 
 export async function uploadResumable(

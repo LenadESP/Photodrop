@@ -32,5 +32,12 @@ export default fp(async function securityPlugin(app: FastifyInstance): Promise<v
     global: true,
     max: 1000,
     timeWindow: '1 minute',
+    // The plugin's default 429 body is its own English string in its own shape.
+    // Match the envelope every other error uses ({ error, code }) and translate
+    // it, so the SPA renders a 429 like any other failure.
+    errorResponseBuilder: (req) => ({
+      error: req.t('error.rateLimited'),
+      code: 'error.rateLimited',
+    }),
   });
 });

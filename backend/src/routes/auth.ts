@@ -77,7 +77,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (!user) {
         // Burn comparable time to blunt username enumeration.
         await hashSecret(password);
-        return reply.code(401).send({ error: 'Invalid credentials' });
+        return reply.fail(401, 'auth.invalidCredentials');
       }
       if (user.locked_until && Date.now() < user.locked_until) {
         // Answer a locked account exactly as an unknown username, so the lock is
@@ -86,11 +86,11 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         // work and be measurably faster than every other outcome, trading a
         // status-code oracle for a timing one. Attempts stay frozen while locked.
         await hashSecret(password);
-        return reply.code(401).send({ error: 'Invalid credentials' });
+        return reply.fail(401, 'auth.invalidCredentials');
       }
       if (!(await verifySecret(user.password_hash, password))) {
         registerFailure(user);
-        return reply.code(401).send({ error: 'Invalid credentials' });
+        return reply.fail(401, 'auth.invalidCredentials');
       }
 
       clearFailures(user.id);
@@ -113,8 +113,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: app.requireEnrollment, config: { rateLimit: strict } },
     async (req, reply) => {
       const user = getUser(req.user.sub);
-      if (!user) return reply.code(401).send({ error: 'Unauthorized' });
-      if (user.totp_enabled) return reply.code(409).send({ error: 'TOTP already enabled' });
+      if (!user) return reply.fail(401, 'error.unauthorized');
+      if (user.totp_enabled) return reply.fail(409, 'auth.totpAlreadyEnabled');
 
       const secret = generateTotpSecret();
       app.db.prepare('UPDATE users SET totp_secret = ? WHERE id = ?').run(secret, user.id);
@@ -130,14 +130,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       const { code } = req.body as Static<typeof TotpBody>;
       const user = getUser(req.user.sub);
       if (!user || !user.totp_secret) {
-        return reply.code(400).send({ error: 'No enrollment in progress' });
+        return reply.fail(400, 'auth.noEnrollment');
       }
       const enrollResult = await verifyTotp(code, user.totp_secret);
       if (!enrollResult.valid) {
-        return reply.code(400).send({ error: 'Invalid code' });
+        return reply.fail(400, 'auth.invalidCode');
       }
       if (!recordTotpStep(user, enrollResult.step)) {
-        return reply.code(400).send({ error: 'Code already used' });
+        return reply.fail(400, 'auth.codeAlreadyUsed');
       }
       app.db.prepare('UPDATE users SET totp_enabled = 1 WHERE id = ?').run(user.id);
       await issueSession(reply, user);
@@ -152,17 +152,17 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const { code } = req.body as Static<typeof TotpBody>;
       const user = getUser(req.user.sub);
-      if (!user || !user.totp_secret) return reply.code(400).send({ error: 'Invalid state' });
+      if (!user || !user.totp_secret) return reply.fail(400, 'auth.invalidState');
       if (user.locked_until && Date.now() < user.locked_until) {
-        return reply.code(423).send({ error: 'Account temporarily locked. Try again later.' });
+        return reply.fail(423, 'auth.accountLocked');
       }
       const result = await verifyTotp(code, user.totp_secret);
       if (!result.valid) {
         registerFailure(user);
-        return reply.code(400).send({ error: 'Invalid code' });
+        return reply.fail(400, 'auth.invalidCode');
       }
       if (!recordTotpStep(user, result.step)) {
-        return reply.code(400).send({ error: 'Code already used' });
+        return reply.fail(400, 'auth.codeAlreadyUsed');
       }
       clearFailures(user.id);
       await issueSession(reply, user);
@@ -173,25 +173,25 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   // ── Session maintenance ───────────────────────────────────────────────────
   app.post('/api/auth/refresh', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req, reply) => {
     const token = req.cookies[REFRESH_COOKIE];
-    if (!token) return reply.code(401).send({ error: 'Unauthorized' });
+    if (!token) return reply.fail(401, 'error.unauthorized');
 
     let claims: { sub: number; scope: string; tv?: number };
     try {
       claims = app.jwt.verify(token) as { sub: number; scope: string; tv?: number };
     } catch {
-      return reply.code(401).send({ error: 'Unauthorized' });
+      return reply.fail(401, 'error.unauthorized');
     }
-    if (claims.scope !== 'refresh') return reply.code(401).send({ error: 'Unauthorized' });
+    if (claims.scope !== 'refresh') return reply.fail(401, 'error.unauthorized');
     const user = getUser(claims.sub);
-    if (!user) return reply.code(401).send({ error: 'Unauthorized' });
+    if (!user) return reply.fail(401, 'error.unauthorized');
     // A locked-out account can't mint a fresh session through refresh either —
     // otherwise a held refresh token would sidestep the lockout entirely.
     if (user.locked_until && Date.now() < user.locked_until) {
-      return reply.code(423).send({ error: 'Account temporarily locked. Try again later.' });
+      return reply.fail(423, 'auth.accountLocked');
     }
     // Revocation: a refresh token minted before a logout (token_version bump) is dead.
     if ((claims.tv ?? 0) !== user.token_version) {
-      return reply.code(401).send({ error: 'Unauthorized' });
+      return reply.fail(401, 'error.unauthorized');
     }
 
     // Issue a fresh access + refresh pair, both carrying the current version.

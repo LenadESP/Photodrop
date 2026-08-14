@@ -127,7 +127,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     try {
       stat = statSync(filePath);
     } catch {
-      return reply.code(404).send({ error: 'Not found' });
+      return reply.fail(404, 'error.notFound');
     }
     const etag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
     reply.header('ETag', etag);
@@ -152,7 +152,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
     const range = parseRange(req.headers.range, stat.size);
     if (range === 'unsatisfiable') {
       reply.header('Content-Range', `bytes */${stat.size}`);
-      return reply.code(416).send({ error: 'Range not satisfiable' });
+      return reply.fail(416, 'error.rangeNotSatisfiable');
     }
     if (range) {
       reply.code(206);
@@ -178,10 +178,10 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
       // Same response whether the album is missing or has no password — no oracle.
       if (!album || album.password_hash === null) {
         await verifySecret('$argon2id$v=19$m=19456,t=2,p=1$Zm9vYmFyYmF6cXV4$Zm9vYmFyYmF6cXV4', password);
-        return reply.code(404).send({ error: 'Not found' });
+        return reply.fail(404, 'error.notFound');
       }
       if (!(await verifySecret(album.password_hash, password))) {
-        return reply.code(401).send({ error: 'Invalid password' });
+        return reply.fail(401, 'album.invalidPassword');
       }
       const token = await reply.jwtSign({ scope: 'album', uid }, { expiresIn: '2h' });
       reply.setCookie(albumCookie(uid), token, albumCookieOpts);
@@ -193,12 +193,12 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/a/:uid', { schema: { params: UidParams } }, async (req, reply) => {
     const { uid } = req.params as Static<typeof UidParams>;
     const album = getAlbum(uid);
-    if (!album) return reply.code(404).send({ error: 'Not found' });
+    if (!album) return reply.fail(404, 'error.notFound');
     if (!hasAccess(req, album)) {
       if (album.is_public !== 1 && album.password_hash !== null) {
         return reply.code(401).send({ passwordRequired: true, title: album.title });
       }
-      return reply.code(404).send({ error: 'Not found' });
+      return reply.fail(404, 'error.notFound');
     }
 
     const photos = app.db
@@ -245,9 +245,9 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/a/:uid/thumb/:id', { schema: { params: UidPhotoParams } }, async (req, reply) => {
     const { uid, id } = req.params as Static<typeof UidPhotoParams>;
     const album = getAlbum(uid);
-    if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
+    if (!album || !hasAccess(req, album)) return reply.fail(403, 'error.forbidden');
     const photo = getReadyPhoto(uid, id);
-    if (!photo) return reply.code(404).send({ error: 'Not found' });
+    if (!photo) return reply.fail(404, 'error.notFound');
     return sendImage(req, reply, safeJoin(thumbsDir(uid), photo.thumb_path), 'image/webp', {
       cacheable: album.is_public === 1,
     });
@@ -259,13 +259,13 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/a/:uid/display/:id', { schema: { params: UidPhotoParams } }, async (req, reply) => {
     const { uid, id } = req.params as Static<typeof UidPhotoParams>;
     const album = getAlbum(uid);
-    if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
+    if (!album || !hasAccess(req, album)) return reply.fail(403, 'error.forbidden');
     const photo = getReadyPhoto(uid, id);
-    if (!photo) return reply.code(404).send({ error: 'Not found' });
+    if (!photo) return reply.fail(404, 'error.notFound');
     // Video has no display derivative, and must not reach the original-fallback
     // below — that would stream a multi-GB file to something expecting a preview
     // image. Videos use /preview for playback and /thumb for the poster.
-    if (photo.kind === 'video') return reply.code(404).send({ error: 'Not found' });
+    if (photo.kind === 'video') return reply.fail(404, 'error.notFound');
     const cacheable = album.is_public === 1;
     const displayPath = safeJoin(displayDir(uid), photo.thumb_path);
     if (existsSync(displayPath)) {
@@ -283,10 +283,10 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/a/:uid/preview/:id', { schema: { params: UidPhotoParams } }, async (req, reply) => {
     const { uid, id } = req.params as Static<typeof UidPhotoParams>;
     const album = getAlbum(uid);
-    if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
+    if (!album || !hasAccess(req, album)) return reply.fail(403, 'error.forbidden');
     const photo = getReadyPhoto(uid, id);
     if (!photo || photo.kind !== 'video' || photo.preview_status !== 'ready') {
-      return reply.code(404).send({ error: 'Not found' });
+      return reply.fail(404, 'error.notFound');
     }
     return sendImage(req, reply, safeJoin(previewDir(uid), `${photo.id}.mp4`), 'video/mp4', {
       cacheable: album.is_public === 1,
@@ -297,9 +297,9 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/a/:uid/photo/:id', { schema: { params: UidPhotoParams }, config: originalLimit }, async (req, reply) => {
     const { uid, id } = req.params as Static<typeof UidPhotoParams>;
     const album = getAlbum(uid);
-    if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
+    if (!album || !hasAccess(req, album)) return reply.fail(403, 'error.forbidden');
     const photo = getReadyPhoto(uid, id);
-    if (!photo) return reply.code(404).send({ error: 'Not found' });
+    if (!photo) return reply.fail(404, 'error.notFound');
     const filePath = safeJoin(originalsDir(uid), photo.stored_filename);
     return sendImage(req, reply, filePath, extToMime(photo.stored_filename));
   });
@@ -308,9 +308,9 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/a/:uid/download/:id', { schema: { params: UidPhotoParams }, config: originalLimit }, async (req, reply) => {
     const { uid, id } = req.params as Static<typeof UidPhotoParams>;
     const album = getAlbum(uid);
-    if (!album || !hasAccess(req, album)) return reply.code(403).send({ error: 'Forbidden' });
+    if (!album || !hasAccess(req, album)) return reply.fail(403, 'error.forbidden');
     const photo = getReadyPhoto(uid, id);
-    if (!photo) return reply.code(404).send({ error: 'Not found' });
+    if (!photo) return reply.fail(404, 'error.notFound');
     const filePath = safeJoin(originalsDir(uid), photo.stored_filename);
     return sendImage(req, reply, filePath, extToMime(photo.stored_filename), {
       downloadName: sanitizeDownloadName(photo.original_name),
@@ -325,12 +325,12 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/a/:uid/zip', { schema: { params: UidParams }, config: zipLimit }, async (req, reply) => {
     const { uid } = req.params as Static<typeof UidParams>;
     const album = getAlbum(uid);
-    if (!album) return reply.code(404).send({ error: 'Not found' });
+    if (!album) return reply.fail(404, 'error.notFound');
     if (!hasAccess(req, album)) {
       if (album.is_public !== 1 && album.password_hash !== null) {
         return reply.code(401).send({ passwordRequired: true });
       }
-      return reply.code(404).send({ error: 'Not found' });
+      return reply.fail(404, 'error.notFound');
     }
 
     const photos = app.db
@@ -338,7 +338,7 @@ export async function publicRoutes(app: FastifyInstance): Promise<void> {
         "SELECT * FROM photos WHERE album_uid = ? AND thumb_status = 'ready' ORDER BY created_at, id",
       )
       .all(uid) as PhotoRow[];
-    if (photos.length === 0) return reply.code(404).send({ error: 'No photos' });
+    if (photos.length === 0) return reply.fail(404, 'upload.noPhotos');
 
     const archive = new ZipArchive({ store: true }); // store: images are already compressed
     archive.on('warning', (err) => app.log.warn({ err }, 'zip warning'));

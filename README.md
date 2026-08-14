@@ -36,6 +36,10 @@ Put the file at docs/media/demo.gif and reference it as:
   admin explicitly chooses to "upload anyway" after a strip failure — a deliberate,
   per-file override.)
 - **Dark mode** — follows the OS preference, with a persisted manual toggle.
+- **English and Spanish** — the app opens in the device language and switches from
+  a toggle next to the theme toggle, on the admin side and in the recipient-facing
+  gallery alike. API error text is localised server-side from `Accept-Language`, so
+  a failure doesn't come back in the wrong language.
 - **Admin dashboard** — create / rename / toggle public / set-remove password /
   regenerate link / set-clear link expiry / toggle EXIF / delete albums, plus drag-drop
   upload. A file the worker can't process (e.g. a metadata strip that times out) is
@@ -143,7 +147,7 @@ SQLite database plus photo files on a mounted volume — no external services. S
 
 ## Status
 
-In production, single-operator (currently **v1.5.2**). Runs the author's photo delivery
+In production, single-operator (currently **v1.6.0**). Runs the author's photo delivery
 at `https://photos.lenadesp.org`. It's a one-admin tool by design: one seeded account,
 mandatory TOTP, no self-service user management. The V2 client-portal groundwork
 (user roles, `album_assignments`) is in the schema but not yet wired to routes.

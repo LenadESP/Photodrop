@@ -26,7 +26,7 @@ export default fp(async function csrfPlugin(app: FastifyInstance): Promise<void>
     const headerValue = Array.isArray(header) ? header[0] : header;
 
     if (!cookie || !headerValue || !sameToken(cookie, headerValue) || !verifyCsrfToken(cookie)) {
-      await reply.code(403).send({ error: 'CSRF token missing or invalid' });
+      await reply.fail(403, 'error.csrfInvalid');
     }
   });
 });
