@@ -33,7 +33,9 @@ runs on untrusted image bytes).
   10/min, refresh to 30/min, and the bulk-byte endpoints to 30/min (`/zip`) and 300/min
   (full originals) (`plugins/security.ts`, per-route `config.rateLimit`). The proxy-trust
   depth that makes `req.ip` the real client IP is configurable via `TRUST_PROXY_HOPS`
-  (default 1 — the single Caddy hop).
+  (default 1 — the single Caddy hop). Whether `req.ip` is the *real visitor* depends on
+  how the proxy sets `X-Forwarded-For` — see
+  [Client IP](#client-ip--a-deployment-requirement-not-just-a-setting).
 - **Account lockout.** 5 failed attempts → a 5-minute lock, applied to the password step,
   the TOTP step, and `/api/auth/refresh` — a held refresh token can't mint a session while
   the account is locked (`routes/auth.ts`). The password step answers a locked account
@@ -130,6 +132,42 @@ runs on untrusted image bytes).
   blobs/data URLs.
 - TLS is terminated by the reverse proxy in front; the container speaks plain HTTP on
   the internal network only.
+
+### Client IP — a deployment requirement, not just a setting
+
+`req.ip` is what every per-IP rate limit and lockout counts against, and it is only as
+honest as the `X-Forwarded-For` the proxy hands over. `TRUST_PROXY_HOPS` (default 1) makes
+Fastify read the entry one hop in from the socket — the address the proxy immediately in
+front appended.
+
+**Put the proxy in front so that it _overwrites_ `X-Forwarded-For` with a client address
+it derived itself, rather than appending to whatever the client sent.**
+
+This matters because CDNs commonly append rather than replace — Cloudflare does — so a
+client that sends its own `X-Forwarded-For` ends up in the left-most position of the
+chain. At the default hop count that value is never read, so photodrop is **not**
+spoofable out of the box; but `req.ip` is then the CDN or tunnel daemon's address, and
+every visitor on the public path shares a single rate-limit bucket. Raising
+`TRUST_PROXY_HOPS` to reach past it makes the client-controlled entry load-bearing and
+trades the broken limiter for a spoofable one.
+
+Overwriting removes the trade — the chain becomes one value the proxy vouches for, so a
+hop count of 1 is correct *and* unspoofable. **Leave `TRUST_PROXY_HOPS` at 1** and set:
+
+```
+# Caddy
+reverse_proxy http://photodrop:3000 {
+    header_up X-Forwarded-For {client_ip}
+}
+
+# nginx (with real_ip configured, so $remote_addr is already the derived client)
+proxy_set_header X-Forwarded-For $remote_addr;
+```
+
+Whatever the proxy derives from is then the whole trust boundary. If it is a header such
+as `CF-Connecting-IP`, make sure the proxy accepts that header only from the CDN or tunnel
+itself — trusting a broad private range means anything else sharing that network can
+choose the address photodrop rate-limits and logs.
 
 ## Container hardening
 

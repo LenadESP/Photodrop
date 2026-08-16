@@ -2,6 +2,21 @@
 
 All notable changes to photodrop. Dates are ISO‑8601.
 
+## [Unreleased]
+
+### Documentation
+
+- **`SECURITY.md` now states the client-IP requirement the rate limiter depends on.**
+  `TRUST_PROXY_HOPS` was documented as the knob that makes `req.ip` the real client, which
+  is only half true: it picks *which* entry of `X-Forwarded-For` is read, but if the proxy
+  in front appends to a client-supplied chain instead of overwriting it, hop 1 is the
+  proxy's own address and every public visitor shares one rate-limit bucket. Measured on a
+  Cloudflare Tunnel deployment: two distinct clients decremented a single counter.
+  Raising the hop count to compensate would make the client-controlled entry load-bearing
+  and allow spoofing, so the fix belongs in the proxy — `header_up X-Forwarded-For
+  {client_ip}` on Caddy — with `TRUST_PROXY_HOPS` left at 1. No code change; the default
+  was already the safe half of the trade.
+
 ## [1.6.1] — 2026-08-14 — layouts that survive a longer language
 
 Frontend-only, layout only: no server, schema, or validation change, and no
